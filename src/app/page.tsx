@@ -393,25 +393,24 @@ function ScrollColumn({
       className="relative overflow-hidden"
       style={{ height: PICKER_HEIGHT }}
     >
-      {/* Center highlight indicator */}
+      {/* Center highlight indicator - light mode */}
       <div
-        className="absolute left-0 right-0 z-10 pointer-events-none rounded-lg mx-1"
+        className="absolute left-0 right-0 z-10 pointer-events-none rounded-lg mx-1 dark:hidden"
         style={{
           top: paddingCount * ITEM_HEIGHT,
           height: ITEM_HEIGHT,
           backgroundColor: 'oklch(0.55 0.2 255 / 0.12)',
         }}
       />
-      <div className="dark:hidden">
-        <div
-          className="absolute left-0 right-0 z-10 pointer-events-none rounded-lg mx-1"
-          style={{
-            top: paddingCount * ITEM_HEIGHT,
-            height: ITEM_HEIGHT,
-            backgroundColor: 'oklch(0.55 0.2 255 / 0.12)',
-          }}
-        />
-      </div>
+      {/* Center highlight indicator - dark mode */}
+      <div
+        className="absolute left-0 right-0 z-10 pointer-events-none rounded-lg mx-1 hidden dark:block"
+        style={{
+          top: paddingCount * ITEM_HEIGHT,
+          height: ITEM_HEIGHT,
+          backgroundColor: 'oklch(0.62 0.22 255 / 0.15)',
+        }}
+      />
 
       <div
         ref={ref}
