@@ -299,11 +299,19 @@ async function parseDOCX(file: File, companies: any[], importType: string, userI
 }
 
 // ==================== AI EXTRACTION ====================
+// Z.AI API endpoints — General vs Coding Plan
+const ZAI_ENDPOINTS: Record<string, string> = {
+  general: 'https://api.z.ai/api/paas/v4/chat/completions',
+  coding: 'https://api.z.ai/api/coding/paas/v4/chat/completions',
+};
+
 async function extractWithAI(text: string, companies: any[], importType: string, userId: string, sourceType: string): Promise<{ shifts: any[]; payments: any[]; warnings: string[] }> {
   // Get the ZAI API key from admin settings
   const settings = await getSettingsFromDB();
   const apiKey = settings.ZAI_API_KEY;
   const model = settings.ZAI_MODEL || 'glm-4.5-flash';
+  const endpointKey = settings.ZAI_API_ENDPOINT || 'general';
+  const apiUrl = ZAI_ENDPOINTS[endpointKey] || ZAI_ENDPOINTS.general;
 
   if (!apiKey) {
     return {
@@ -342,7 +350,7 @@ Return JSON in this exact format:
 {"shifts": [...], "payments": [...]}`;
 
   try {
-    const response = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

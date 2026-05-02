@@ -823,12 +823,33 @@ export const otpCode = {
 }
 
 // ==================== SETTING ====================
+// Auto-create Setting table if it doesn't exist (for Turso databases that weren't set up with the latest schema)
+async function ensureSettingTable(client: Client): Promise<void> {
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS Setting (
+      key TEXT PRIMARY KEY NOT NULL,
+      value TEXT NOT NULL,
+      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+  console.log('[DB] Auto-created Setting table')
+}
+
 export const setting = {
   async get(key: string): Promise<string | null> {
     if (useTurso()) {
       const client = getTursoClient()
-      const r = await client.execute({ sql: 'SELECT value FROM Setting WHERE key = ?', args: [key] })
-      return (r.rows[0]?.value as string) ?? null
+      try {
+        const r = await client.execute({ sql: 'SELECT value FROM Setting WHERE key = ?', args: [key] })
+        return (r.rows[0]?.value as string) ?? null
+      } catch (e: any) {
+        if (String(e).includes('no such table')) {
+          await ensureSettingTable(client)
+          const r = await client.execute({ sql: 'SELECT value FROM Setting WHERE key = ?', args: [key] })
+          return (r.rows[0]?.value as string) ?? null
+        }
+        throw e
+      }
     }
     const prisma = getPrismaClient()
     const row = await prisma.setting.findUnique({ where: { key } })
@@ -838,10 +859,22 @@ export const setting = {
   async set(key: string, value: string): Promise<void> {
     if (useTurso()) {
       const client = getTursoClient()
-      await client.execute({
-        sql: 'INSERT INTO Setting (key, value, updatedAt) VALUES (?, ?, datetime(\'now\')) ON CONFLICT(key) DO UPDATE SET value = ?, updatedAt = datetime(\'now\')',
-        args: [key, value, value],
-      })
+      try {
+        await client.execute({
+          sql: 'INSERT INTO Setting (key, value, updatedAt) VALUES (?, ?, datetime(\'now\')) ON CONFLICT(key) DO UPDATE SET value = ?, updatedAt = datetime(\'now\')',
+          args: [key, value, value],
+        })
+      } catch (e: any) {
+        if (String(e).includes('no such table')) {
+          await ensureSettingTable(client)
+          await client.execute({
+            sql: 'INSERT INTO Setting (key, value, updatedAt) VALUES (?, ?, datetime(\'now\')) ON CONFLICT(key) DO UPDATE SET value = ?, updatedAt = datetime(\'now\')',
+            args: [key, value, value],
+          })
+        } else {
+          throw e
+        }
+      }
       return
     }
     const prisma = getPrismaClient()
@@ -855,12 +888,20 @@ export const setting = {
   async getAll(): Promise<Record<string, string>> {
     if (useTurso()) {
       const client = getTursoClient()
-      const r = await client.execute({ sql: 'SELECT key, value FROM Setting', args: [] })
-      const result: Record<string, string> = {}
-      for (const row of r.rows) {
-        result[row.key as string] = row.value as string
+      try {
+        const r = await client.execute({ sql: 'SELECT key, value FROM Setting', args: [] })
+        const result: Record<string, string> = {}
+        for (const row of r.rows) {
+          result[row.key as string] = row.value as string
+        }
+        return result
+      } catch (e: any) {
+        if (String(e).includes('no such table')) {
+          await ensureSettingTable(client)
+          return {}
+        }
+        throw e
       }
-      return result
     }
     const prisma = getPrismaClient()
     const rows = await prisma.setting.findMany()
@@ -874,7 +915,15 @@ export const setting = {
   async delete(key: string): Promise<void> {
     if (useTurso()) {
       const client = getTursoClient()
-      await client.execute({ sql: 'DELETE FROM Setting WHERE key = ?', args: [key] })
+      try {
+        await client.execute({ sql: 'DELETE FROM Setting WHERE key = ?', args: [key] })
+      } catch (e: any) {
+        if (String(e).includes('no such table')) {
+          await ensureSettingTable(client)
+          return
+        }
+        throw e
+      }
       return
     }
     const prisma = getPrismaClient()
