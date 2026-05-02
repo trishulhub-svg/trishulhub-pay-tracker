@@ -583,7 +583,15 @@ export default function TrishulHubPayTracker() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
-          <Image src="/logo.png" alt="TrishulHub" width={120} height={48} className="animate-pulse" priority />
+          <div className="flex items-center gap-3 animate-pulse">
+            <Image src="/logo.png" alt="" width={44} height={44} className="shrink-0" priority />
+            <div className="text-left">
+              <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-green-600 bg-clip-text text-transparent leading-tight">
+                TrishulHub
+              </h1>
+              <p className="text-xs text-muted-foreground font-medium -mt-0.5">Pay Tracker</p>
+            </div>
+          </div>
           <p className="text-muted-foreground text-sm">Loading...</p>
         </div>
       </div>
@@ -666,8 +674,16 @@ function AuthView({
           animate={{ opacity: 1, y: 0 }}
           className="text-center mb-8"
         >
-          <Image src="/logo-wide.png" alt="TrishulHub Pay Tracker" width={260} height={104} className="mb-3" priority />
-          <p className="text-muted-foreground">Track your salary payments — Free forever</p>
+          <div className="flex items-center justify-center gap-3 mb-3">
+            <Image src="/logo.png" alt="" width={48} height={48} className="shrink-0" priority />
+            <div className="text-left">
+              <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-green-600 bg-clip-text text-transparent leading-tight">
+                TrishulHub
+              </h1>
+              <p className="text-xs text-muted-foreground font-medium -mt-0.5">Pay Tracker</p>
+            </div>
+          </div>
+          <p className="text-muted-foreground text-sm">Track your salary payments — Free forever</p>
         </motion.div>
 
         <AnimatePresence mode="wait">
@@ -1313,8 +1329,14 @@ function DesktopSidebar({
 
   return (
     <aside className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 border-r border-border bg-card">
-      <div className="flex items-center gap-3 px-6 py-5 border-b border-border">
-        <Image src="/logo.png" alt="TrishulHub Pay Tracker" width={130} height={52} className="shrink-0" />
+      <div className="flex items-center gap-2.5 px-6 py-5 border-b border-border">
+        <Image src="/logo.png" alt="" width={36} height={36} className="shrink-0" />
+        <div>
+          <h2 className="text-sm font-bold bg-gradient-to-r from-blue-600 to-green-600 bg-clip-text text-transparent leading-tight">
+            TrishulHub
+          </h2>
+          <p className="text-[10px] text-muted-foreground font-medium -mt-0.5">Pay Tracker</p>
+        </div>
         {user.isPremium && (
           <Badge className="ml-auto bg-gradient-to-r from-amber-500 to-orange-500 text-white text-[10px] px-1.5">
             <Star className="h-3 w-3 mr-0.5" /> PRO
