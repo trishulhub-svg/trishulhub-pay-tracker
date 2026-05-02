@@ -69,3 +69,26 @@ Stage Summary:
 - OTP codes are never logged, displayed, or returned in any API response
 - Failed email sends clean up the OTP record from database
 - All security requirements met
+
+---
+Task ID: 1
+Agent: Main Agent
+Task: Fix LibsqlError and resolve z@container deployment issue
+
+Work Log:
+- Analyzed uploaded screenshot showing Vercel "Failed deployment from z@container" email
+- Reviewed current db.ts code - found PrismaClient was imported at top level
+- Identified root cause: PrismaClient top-level import forces Prisma to validate DATABASE_URL on Vercel, causing LibsqlError
+- Rewrote db.ts to lazy-load PrismaClient via require() only when NOT using Turso
+- Added better error messages for missing Turso env vars in getTursoClient()
+- Removed debug-env API endpoint (security risk in production)
+- Tested build locally - successful
+- Changed git author from "Z User <z@container>" to "TrishulHub <trishulhub-svg@users.noreply.github.com>"
+- Pushed fix to GitHub as commit 572a8e0
+- Provided step-by-step guide for user to deploy from THEIR OWN Vercel account
+
+Stage Summary:
+- Code fix pushed to GitHub: lazy-load PrismaClient prevents URL_INVALID error on Vercel
+- User needs to create new Vercel project under their own account and import the GitHub repo
+- Must set 10 environment variables including DATABASE_URL=file:/tmp/dummy.db for prisma generate
+- Old Vercel project (owned by z@container) should be deleted to stop failed deployment emails
