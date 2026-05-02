@@ -1,6 +1,5 @@
 generator client {
-  provider        = "prisma-client-js"
-  previewFeatures = ["driverAdapters"]
+  provider = "prisma-client-js"
 }
 
 datasource db {
@@ -87,7 +86,7 @@ model OtpCode {
   id        String   @id @default(cuid())
   email     String
   code      String
-  type      String   // SIGNUP, PASSWORD_RESET
+  type      String
   verified  Boolean  @default(false)
   expiresAt DateTime
   createdAt DateTime @default(now())
