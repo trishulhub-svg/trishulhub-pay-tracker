@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import Image from 'next/image';
 import { useTheme } from 'next-themes';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
@@ -582,9 +583,7 @@ export default function TrishulHubPayTracker() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-green-600 flex items-center justify-center animate-pulse">
-            <PoundSterling className="w-6 h-6 text-white" />
-          </div>
+          <Image src="/logo.png" alt="TrishulHub" width={120} height={48} className="animate-pulse" priority />
           <p className="text-muted-foreground text-sm">Loading...</p>
         </div>
       </div>
@@ -667,13 +666,8 @@ function AuthView({
           animate={{ opacity: 1, y: 0 }}
           className="text-center mb-8"
         >
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-green-600 mb-4">
-            <PoundSterling className="w-8 h-8 text-white" />
-          </div>
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-green-600 bg-clip-text text-transparent">
-            TrishulHub Pay Tracker
-          </h1>
-          <p className="text-muted-foreground mt-1">Track your salary payments — Free forever</p>
+          <Image src="/logo-wide.png" alt="TrishulHub Pay Tracker" width={260} height={104} className="mb-3" priority />
+          <p className="text-muted-foreground">Track your salary payments — Free forever</p>
         </motion.div>
 
         <AnimatePresence mode="wait">
@@ -1320,13 +1314,7 @@ function DesktopSidebar({
   return (
     <aside className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 border-r border-border bg-card">
       <div className="flex items-center gap-3 px-6 py-5 border-b border-border">
-        <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-600 to-green-600 flex items-center justify-center">
-          <PoundSterling className="w-5 h-5 text-white" />
-        </div>
-        <div>
-          <h2 className="font-bold text-sm text-foreground">TrishulHub</h2>
-          <p className="text-xs text-muted-foreground">Pay Tracker</p>
-        </div>
+        <Image src="/logo.png" alt="TrishulHub Pay Tracker" width={130} height={52} className="shrink-0" />
         {user.isPremium && (
           <Badge className="ml-auto bg-gradient-to-r from-amber-500 to-orange-500 text-white text-[10px] px-1.5">
             <Star className="h-3 w-3 mr-0.5" /> PRO
