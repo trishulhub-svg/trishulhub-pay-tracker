@@ -678,21 +678,72 @@ export const shift = {
 
 // ==================== OTP CODE ====================
 export const otpCode = {
-  async findFirst(args: { where: { email: string; type: string; verified?: boolean; expiresAt?: any }; orderBy?: any }) {
+  async findFirst(args: { where: { email?: string; type?: string; verified?: boolean; expiresAt?: any; createdAt?: any; code?: string }; orderBy?: any }) {
     if (useTurso()) {
       const client = getTursoClient()
-      const conditions: string[] = ['email = ?', 'type = ?']
-      const values: any[] = [args.where.email, args.where.type]
+      const conditions: string[] = []
+      const values: any[] = []
+      if (args.where.email !== undefined) {
+        conditions.push('email = ?')
+        values.push(args.where.email)
+      }
+      if (args.where.type !== undefined) {
+        conditions.push('type = ?')
+        values.push(args.where.type)
+      }
       if (args.where.verified !== undefined) {
         conditions.push('verified = ?')
         values.push(args.where.verified ? 1 : 0)
       }
-      if (args.where.expiresAt && args.where.expiresAt.gte) {
-        conditions.push('expiresAt >= ?')
-        values.push(toSqlValue(args.where.expiresAt.gte))
+      if (args.where.code !== undefined) {
+        conditions.push('code = ?')
+        values.push(args.where.code)
       }
+      // Handle expiresAt with operators (gte, lte, gt, lt)
+      if (args.where.expiresAt) {
+        if (typeof args.where.expiresAt === 'object') {
+          if ('gte' in args.where.expiresAt) {
+            conditions.push('expiresAt >= ?')
+            values.push(toSqlValue(args.where.expiresAt.gte))
+          }
+          if ('lte' in args.where.expiresAt) {
+            conditions.push('expiresAt <= ?')
+            values.push(toSqlValue(args.where.expiresAt.lte))
+          }
+          if ('gt' in args.where.expiresAt) {
+            conditions.push('expiresAt > ?')
+            values.push(toSqlValue(args.where.expiresAt.gt))
+          }
+          if ('lt' in args.where.expiresAt) {
+            conditions.push('expiresAt < ?')
+            values.push(toSqlValue(args.where.expiresAt.lt))
+          }
+        }
+      }
+      // Handle createdAt with operators (gte, lte, gt, lt)
+      if (args.where.createdAt) {
+        if (typeof args.where.createdAt === 'object') {
+          if ('gte' in args.where.createdAt) {
+            conditions.push('createdAt >= ?')
+            values.push(toSqlValue(args.where.createdAt.gte))
+          }
+          if ('lte' in args.where.createdAt) {
+            conditions.push('createdAt <= ?')
+            values.push(toSqlValue(args.where.createdAt.lte))
+          }
+          if ('gt' in args.where.createdAt) {
+            conditions.push('createdAt > ?')
+            values.push(toSqlValue(args.where.createdAt.gt))
+          }
+          if ('lt' in args.where.createdAt) {
+            conditions.push('createdAt < ?')
+            values.push(toSqlValue(args.where.createdAt.lt))
+          }
+        }
+      }
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
       const r = await client.execute({
-        sql: `SELECT * FROM OtpCode WHERE ${conditions.join(' AND ')} ORDER BY createdAt DESC LIMIT 1`,
+        sql: `SELECT * FROM OtpCode ${whereClause} ORDER BY createdAt DESC LIMIT 1`,
         args: values,
       })
       const row = r.rows[0] as any
@@ -726,7 +777,7 @@ export const otpCode = {
       await client.execute({
         sql: `INSERT INTO OtpCode (id, email, code, type, verified, expiresAt, createdAt, userId)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [id, d.email, d.code, d.type, d.verified ? 1 : 0, d.expiresAt, now, d.userId ?? null],
+        args: [id, d.email, d.code, d.type, d.verified ? 1 : 0, toSqlValue(d.expiresAt), now, d.userId ?? null],
       })
       const r = await client.execute({ sql: 'SELECT * FROM OtpCode WHERE id = ?', args: [id] })
       const row = r.rows[0] as any

@@ -58,6 +58,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Please wait 60 seconds before requesting a new code' }, { status: 429 });
     }
 
+    // Invalidate any previous unverified OTPs for this email+type before creating a new one
+    // This ensures only the latest OTP is valid and prevents stale OTP confusion
+    await db.otpCode.deleteMany({ where: { email: normalizedEmail, type: otpType } });
+
     const code = generateOtpCode();
     const expiresAt = getOtpExpiry();
 

@@ -39,6 +39,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: successMessage });
     }
 
+    // Invalidate any previous unverified OTPs for this email+type before creating a new one
+    await db.otpCode.deleteMany({ where: { email: normalizedEmail, type: 'PASSWORD_RESET' } });
+
     const code = generateOtpCode();
     const expiresAt = getOtpExpiry();
 

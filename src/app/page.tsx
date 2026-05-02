@@ -1287,6 +1287,14 @@ function ForgotPasswordView({ onBack }: { onBack: () => void }) {
               {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
               Verify Code
             </Button>
+            <button
+              type="button"
+              onClick={handleSendOtp}
+              className="w-full text-sm text-muted-foreground hover:text-foreground text-center min-h-[44px]"
+              disabled={loading}
+            >
+              Didn't get a code? Resend
+            </button>
           </div>
         )}
 
