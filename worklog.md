@@ -1,32 +1,30 @@
 ---
-Task ID: 1
+Task ID: 2
 Agent: Main
-Task: Complete TrishulHub Pay Tracker rework with new features
+Task: Major rework - dark mode fix, mobile-first, OTP signup, weekly shifts, referral links, password reset
 
 Work Log:
-- Updated Prisma schema with Shift model, admin role (role field on User), terms acceptance fields
-- Applied schema with `prisma db push --force-reset` and regenerated client
-- Updated session.ts to include `role` field in SessionUser
-- Updated store.ts with new view types (shifts, add-shift, edit-shift, admin) and selectedShiftId
-- Updated signup API route: requires termsAccepted=true, fixed referral logic (only referrer gets premium)
-- Updated login API route: includes role in session token
-- Updated session API route: returns fresh role from DB
-- Created shifts API routes: GET/POST /api/shifts, PUT/DELETE /api/shifts/[id], GET /api/shifts/hours
-- Created admin API route: GET /api/admin (returns stats, recentSignups, monthlySignups - NO personal data)
-- Updated dashboard API route: includes shiftSummary for current month
-- Rewrote page.tsx (2742 lines) with all new features:
-  - UK-standard Terms & Conditions dialog at signup (must be accepted)
-  - Referral logic: only referrer gets premium (not the referred user)
-  - Admin Dashboard view (only for ADMIN role users)
-  - Full Shift Tracker (like ProdHours): shift types, break tracking, auto-hours calculation, overnight shifts
-  - Auto-populate worked hours in payment form from shift data
-  - Working dark/light mode with next-themes
-  - TrishulHub branding throughout
-- Updated seed.ts with admin account (admin@trishulhub.com / admin123), demo user, shift data
-- Verified build passes successfully with all 17 API routes
+- Updated Prisma schema: added OtpCode model, emailVerified field on User, removed location from Shift
+- Created email-validation.ts: disposable email blocker with 500+ temp domain list, email format validation
+- Created email.ts: Brevo SMTP API integration, OTP generation, HTML email templates (signup + password reset)
+- Created API routes: /api/auth/send-otp, /api/auth/verify-otp, /api/auth/forgot-password, /api/auth/reset-password
+- Updated signup API: now requires OTP verification before account creation, blocks disposable emails
+- Updated shifts API: removed location field from create/update
+- Rewrote page.tsx (3000+ lines) with:
+  - Fixed dark mode: all components use semantic CSS variables with dark: variants
+  - Mobile-first design: bottom nav, full-width forms, touch-friendly targets
+  - OTP-based signup: 3-step flow (Details → Verify OTP → Done)
+  - Referral link system: ?ref=CODE auto-fills signup form
+  - Password reset: forgot password → OTP → new password
+  - Weekly shift calendar: Mon-Sun layout, week navigation, daily shift cards
+  - DEV MODE banner shows OTP code when Brevo API key not set
+- Updated seed.ts: current week shift data for weekly view demo
+- Added .env entries: BREVO_API_KEY, BREVO_FROM_EMAIL, BREVO_FROM_NAME
+- Build passes successfully with all 20 API routes
 
 Stage Summary:
-- Admin account: admin@trishulhub.com / admin123
-- Demo account: demo@trishulhub.com / demo123
-- All features implemented: T&C, referral fix, admin dashboard, shift tracker, auto-populate hours, dark mode
-- Build compiles successfully with zero errors
+- All new features implemented and building successfully
+- Admin: admin@trishulhub.com / admin123
+- Demo: demo@trishulhub.com / demo123
+- OTP flow works in dev mode (shows code in banner when Brevo not configured)
+- User needs to provide Brevo API key in .env for production email sending

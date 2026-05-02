@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { hashPassword } from '@/lib/auth';
 import { createSessionToken } from '@/lib/session';
+import { isDisposableEmail, isLikelyValidEmailDomain } from '@/lib/email-validation';
 
 function generateReferralCode(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -14,10 +15,10 @@ function generateReferralCode(): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const { name, email, password, referralCode, termsAccepted } = await request.json();
+    const { name, email, password, referralCode, termsAccepted, otpCode } = await request.json();
 
-    if (!name || !email || !password) {
-      return NextResponse.json({ error: 'Name, email, and password are required' }, { status: 400 });
+    if (!name || !email || !password || !otpCode) {
+      return NextResponse.json({ error: 'Name, email, password, and verification code are required' }, { status: 400 });
     }
 
     if (password.length < 6) {
@@ -28,9 +29,46 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'You must accept the Terms and Conditions to sign up' }, { status: 400 });
     }
 
-    const existing = await db.user.findUnique({ where: { email } });
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // Block disposable emails
+    if (!isLikelyValidEmailDomain(normalizedEmail)) {
+      return NextResponse.json(
+        { error: 'Please use a valid email address. Disposable or temporary emails are not allowed.' },
+        { status: 400 }
+      );
+    }
+
+    if (isDisposableEmail(normalizedEmail)) {
+      return NextResponse.json(
+        { error: 'Disposable email addresses are not allowed. Please use a permanent email address.' },
+        { status: 400 }
+      );
+    }
+
+    // Verify OTP was verified
+    const otpRecord = await db.otpCode.findFirst({
+      where: {
+        email: normalizedEmail,
+        type: 'SIGNUP',
+        verified: true,
+        expiresAt: { gte: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!otpRecord) {
+      return NextResponse.json({ error: 'Please verify your email address first. Enter the verification code sent to your email.' }, { status: 400 });
+    }
+
+    if (otpRecord.code !== otpCode) {
+      return NextResponse.json({ error: 'Invalid verification code. Please try again.' }, { status: 400 });
+    }
+
+    // Check if email already registered
+    const existing = await db.user.findUnique({ where: { email: normalizedEmail } });
     if (existing) {
-      return NextResponse.json({ error: 'Email already registered' }, { status: 409 });
+      return NextResponse.json({ error: 'This email is already registered. Please sign in instead.' }, { status: 409 });
     }
 
     const hashedPassword = await hashPassword(password);
@@ -43,7 +81,7 @@ export async function POST(request: NextRequest) {
       codeExists = await db.user.findUnique({ where: { referralCode: newReferralCode } });
     }
 
-    // Check referral code if provided - ONLY the REFERRER gets premium, NOT the new user
+    // Check referral code if provided - ONLY the REFERRER gets premium
     let referredBy: string | null = null;
     if (referralCode) {
       const referrer = await db.user.findUnique({ where: { referralCode } });
@@ -57,10 +95,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // New user is always FREE plan - they must refer others to get premium
+    // Create user with email verified
     const user = await db.user.create({
       data: {
-        email,
+        email: normalizedEmail,
         name,
         password: hashedPassword,
         referralCode: newReferralCode,
@@ -68,7 +106,13 @@ export async function POST(request: NextRequest) {
         isPremium: false,
         termsAccepted: true,
         termsAcceptedAt: new Date(),
+        emailVerified: true,
       },
+    });
+
+    // Clean up used OTP codes
+    await db.otpCode.deleteMany({
+      where: { email: normalizedEmail },
     });
 
     const sessionUser = {

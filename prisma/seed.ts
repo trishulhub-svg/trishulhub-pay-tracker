@@ -18,6 +18,7 @@ async function main() {
       role: 'ADMIN',
       termsAccepted: true,
       termsAcceptedAt: new Date(),
+      emailVerified: true,
     },
   });
   console.log('Admin user created:', admin.email);
@@ -36,6 +37,7 @@ async function main() {
       role: 'USER',
       termsAccepted: true,
       termsAcceptedAt: new Date(),
+      emailVerified: true,
       referredBy: 'TRISHUL-ADMIN',
     },
   });
@@ -50,7 +52,6 @@ async function main() {
       userId: admin.id,
     },
   });
-  console.log('Company created:', greenCare.name);
 
   const trishulHub = await prisma.company.upsert({
     where: { userId_name: { userId: admin.id, name: 'TrishulHub' } },
@@ -60,9 +61,8 @@ async function main() {
       userId: admin.id,
     },
   });
-  console.log('Company created:', trishulHub.name);
 
-  // Create demo payment records for Green Care (admin user)
+  // Create payment records for Green Care
   const greenCareRecords = [
     { month: 4, year: 2025, expected: 725, received: 725, hmrc: 580, hours: 58 },
     { month: 5, year: 2025, expected: 606.25, received: 606.25, hmrc: 485, hours: 48.5 },
@@ -94,20 +94,19 @@ async function main() {
         totalHMRC: m.hmrc,
         totalDue: totalDue > 0 ? totalDue : 0,
         workedHours: m.hours,
-        status: status,
+        status,
       },
     });
   }
-  console.log('Green Care payment records created');
 
-  // Create demo payment records for TrishulHub (admin user)
-  const trishulHubRecords = [
+  // TrishulHub payment records
+  const thRecords = [
     { month: 1, year: 2026, expected: 2000, received: 2000, hmrc: 1600, hours: 160 },
     { month: 2, year: 2026, expected: 2000, received: 2000, hmrc: 1600, hours: 160 },
     { month: 3, year: 2026, expected: 2000, received: 1500, hmrc: 1600, hours: 160 },
   ];
 
-  for (const m of trishulHubRecords) {
+  for (const m of thRecords) {
     const totalDue = m.expected - m.received;
     const status = m.received >= m.expected ? 'PAID' : 'PENDING';
     await prisma.paymentRecord.upsert({
@@ -123,36 +122,32 @@ async function main() {
         totalHMRC: m.hmrc,
         totalDue: totalDue > 0 ? totalDue : 0,
         workedHours: m.hours,
-        status: status,
+        status,
       },
     });
   }
-  console.log('TrishulHub payment records created');
 
-  // Create demo shift records for Green Care (current month - April 2026)
+  // Create shifts for current week (for weekly view demo)
+  // Get current week dates
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0=Sun, 1=Mon...
+  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + mondayOffset);
+
+  const weekDates: string[] = [];
+  for (let i = 0; i < 5; i++) { // Mon-Fri
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    weekDates.push(d.toISOString().split('T')[0]);
+  }
+
   const shiftData = [
-    { date: '2026-04-01', start: '09:00', end: '17:00', break: 60, type: 'REGULAR', location: 'Office' },
-    { date: '2026-04-02', start: '09:00', end: '17:00', break: 60, type: 'REGULAR', location: 'Office' },
-    { date: '2026-04-03', start: '09:00', end: '17:00', break: 60, type: 'REGULAR', location: 'Office' },
-    { date: '2026-04-04', start: '09:00', end: '13:00', break: 0, type: 'REGULAR', location: 'Office' },
-    { date: '2026-04-07', start: '09:00', end: '17:00', break: 60, type: 'REGULAR', location: 'Office' },
-    { date: '2026-04-08', start: '09:00', end: '17:00', break: 60, type: 'REGULAR', location: 'Office' },
-    { date: '2026-04-09', start: '09:00', end: '17:00', break: 60, type: 'REGULAR', location: 'Office' },
-    { date: '2026-04-10', start: '09:00', end: '17:00', break: 60, type: 'REGULAR', location: 'Office' },
-    { date: '2026-04-11', start: '09:00', end: '13:00', break: 0, type: 'REGULAR', location: 'Office' },
-    { date: '2026-04-14', start: '09:00', end: '17:30', break: 60, type: 'OVERTIME', location: 'Office' },
-    { date: '2026-04-15', start: '09:00', end: '17:00', break: 60, type: 'REGULAR', location: 'Office' },
-    { date: '2026-04-16', start: '09:00', end: '17:00', break: 60, type: 'REGULAR', location: 'Office' },
-    { date: '2026-04-17', start: '09:00', end: '17:00', break: 60, type: 'REGULAR', location: 'Office' },
-    { date: '2026-04-18', start: '09:00', end: '13:00', break: 0, type: 'HOLIDAY', location: 'Office' },
-    { date: '2026-04-21', start: '09:00', end: '17:00', break: 60, type: 'REGULAR', location: 'Office' },
-    { date: '2026-04-22', start: '09:00', end: '17:00', break: 60, type: 'REGULAR', location: 'Office' },
-    { date: '2026-04-23', start: '09:00', end: '17:00', break: 60, type: 'REGULAR', location: 'Office' },
-    { date: '2026-04-24', start: '09:00', end: '17:00', break: 60, type: 'REGULAR', location: 'Office' },
-    { date: '2026-04-25', start: '09:00', end: '13:00', break: 0, type: 'REGULAR', location: 'Office' },
-    { date: '2026-04-28', start: '09:00', end: '17:00', break: 60, type: 'REGULAR', location: 'Office' },
-    { date: '2026-04-29', start: '09:00', end: '17:00', break: 60, type: 'REGULAR', location: 'Office' },
-    { date: '2026-04-30', start: '09:00', end: '17:00', break: 60, type: 'REGULAR', location: 'Office' },
+    { date: weekDates[0], start: '09:00', end: '17:00', break: 60, type: 'REGULAR' },
+    { date: weekDates[1], start: '09:00', end: '17:30', break: 60, type: 'REGULAR' },
+    { date: weekDates[2], start: '09:00', end: '17:00', break: 60, type: 'REGULAR' },
+    { date: weekDates[3], start: '09:00', end: '17:00', break: 60, type: 'OVERTIME' },
+    { date: weekDates[4], start: '09:00', end: '13:00', break: 0, type: 'REGULAR' },
   ];
 
   for (const s of shiftData) {
@@ -174,52 +169,9 @@ async function main() {
         breakMinutes: s.break,
         totalHours: Math.round(totalHours * 100) / 100,
         shiftType: s.type,
-        location: s.location,
       },
     });
   }
-  console.log('Green Care shift records created');
-
-  // Create some shifts for TrishulHub too
-  const thShifts = [
-    { date: '2026-04-01', start: '10:00', end: '18:00', break: 60, type: 'REGULAR', location: 'Remote' },
-    { date: '2026-04-02', start: '10:00', end: '18:00', break: 60, type: 'REGULAR', location: 'Remote' },
-    { date: '2026-04-03', start: '10:00', end: '18:00', break: 60, type: 'REGULAR', location: 'Remote' },
-    { date: '2026-04-04', start: '10:00', end: '14:00', break: 0, type: 'REGULAR', location: 'Remote' },
-    { date: '2026-04-07', start: '10:00', end: '18:00', break: 60, type: 'REGULAR', location: 'Remote' },
-    { date: '2026-04-08', start: '10:00', end: '18:00', break: 60, type: 'REGULAR', location: 'Remote' },
-    { date: '2026-04-09', start: '10:00', end: '18:00', break: 60, type: 'REGULAR', location: 'Remote' },
-    { date: '2026-04-10', start: '10:00', end: '18:00', break: 60, type: 'REGULAR', location: 'Remote' },
-    { date: '2026-04-11', start: '10:00', end: '14:00', break: 0, type: 'REGULAR', location: 'Remote' },
-    { date: '2026-04-14', start: '10:00', end: '18:00', break: 60, type: 'REGULAR', location: 'Remote' },
-    { date: '2026-04-15', start: '10:00', end: '18:00', break: 60, type: 'REGULAR', location: 'Remote' },
-    { date: '2026-04-16', start: '10:00', end: '18:00', break: 60, type: 'REGULAR', location: 'Remote' },
-  ];
-
-  for (const s of thShifts) {
-    const [startH, startM] = s.start.split(':').map(Number);
-    const [endH, endM] = s.end.split(':').map(Number);
-    const startMinutes = startH * 60 + startM;
-    let endMinutes = endH * 60 + endM;
-    if (endMinutes <= startMinutes) endMinutes += 24 * 60;
-    const workedMinutes = endMinutes - startMinutes - s.break;
-    const totalHours = Math.max(0, workedMinutes / 60);
-
-    await prisma.shift.create({
-      data: {
-        userId: admin.id,
-        companyId: trishulHub.id,
-        date: s.date,
-        startTime: s.start,
-        endTime: s.end,
-        breakMinutes: s.break,
-        totalHours: Math.round(totalHours * 100) / 100,
-        shiftType: s.type,
-        location: s.location,
-      },
-    });
-  }
-  console.log('TrishulHub shift records created');
 
   console.log('\n=== Seed Complete ===');
   console.log('Admin: admin@trishulhub.com / admin123');

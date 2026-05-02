@@ -21,7 +21,7 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { companyId, date, startTime, endTime, breakMinutes, shiftType, location, notes } = body;
+    const { companyId, date, startTime, endTime, breakMinutes, shiftType, notes } = body;
 
     const updateData: Record<string, unknown> = {};
     if (companyId !== undefined) updateData.companyId = companyId;
@@ -30,7 +30,7 @@ export async function PUT(
     if (endTime !== undefined) updateData.endTime = endTime;
     if (breakMinutes !== undefined) updateData.breakMinutes = breakMinutes;
     if (shiftType !== undefined) updateData.shiftType = shiftType;
-    if (location !== undefined) updateData.location = location || null;
+    // location field removed from UI - always null
     if (notes !== undefined) updateData.notes = notes || null;
 
     // Recalculate total hours if time fields changed
