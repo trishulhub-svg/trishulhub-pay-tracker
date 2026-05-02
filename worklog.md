@@ -32,3 +32,30 @@ Stage Summary:
 - Dark mode fix: root cause was tailwind.config.ts content paths missing `src/` prefix
 - Build passes cleanly
 - Ready for GitHub push and Vercel deployment
+
+---
+Task ID: 1
+Agent: Main Agent
+Task: Restore original TrishulHub logo, fix session staleness, improve mobile responsiveness
+
+Work Log:
+- Analyzed logo files: logo-old.png (500x200, original wide logo) vs logo.png (512x512, AI-generated)
+- Extracted the actual icon from logo-old.png (140x140 square icon centered in canvas)
+- Created new logo.png (150x150 square) with the original TrishulHub icon
+- Generated proper PWA icons (192x192, 512x512, 180x180) with icon centered in 80% safe zone for maskable
+- Fixed session isPremium staleness: session API now updates the cookie when isPremium/role/name changes
+- Fixed premium popup mobile responsiveness: uses Sheet (bottom drawer) on mobile, Dialog on desktop
+- Applied mobile responsiveness fixes:
+  - ScrollTimePicker pairs: grid-cols-2 → grid-cols-1 sm:grid-cols-2
+  - RecordForm currency inputs: grid-cols-2 → grid-cols-1 sm:grid-cols-2
+  - Theme selector: reduced gap and padding on mobile
+  - Monthly signups chart: w-28 → w-20 sm:w-28 for month labels
+  - Month/Year selectors: gap-3 → gap-2 sm:gap-3
+- Build test passed successfully
+- Pushed to GitHub
+
+Stage Summary:
+- Original TrishulHub logo restored everywhere (login, sidebar, loading screen, PWA)
+- Session cookie now auto-refreshes when isPremium changes (no more re-login needed)
+- Premium popup properly displays on mobile as bottom sheet
+- Multiple mobile responsiveness improvements across the app
