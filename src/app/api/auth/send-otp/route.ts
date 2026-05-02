@@ -80,12 +80,10 @@ export async function POST(request: NextRequest) {
 
     if (!emailResult.success) {
       console.error('Failed to send OTP email:', emailResult.error);
-      // In development, still return success so the OTP flow works
-      if (process.env.NODE_ENV !== 'production') {
-        console.log(`[DEV] OTP for ${normalizedEmail}: ${code}`);
-        return NextResponse.json({ message: 'Verification code sent', devCode: code });
-      }
-      return NextResponse.json({ error: 'Failed to send verification email. Please try again.' }, { status: 500 });
+      // OTP is NEVER displayed on screen - only sent via email
+      // Clean up the OTP record since email failed
+      await db.otpCode.deleteMany({ where: { email: normalizedEmail, code } });
+      return NextResponse.json({ error: 'Failed to send verification email. Please try again later.' }, { status: 500 });
     }
 
     return NextResponse.json({ message: 'Verification code sent' });

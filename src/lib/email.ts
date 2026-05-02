@@ -1,9 +1,25 @@
-// Email sending utility using Brevo (Sendinblue) SMTP API
-// Uses Brevo's HTTPS API instead of raw SMTP for reliability
+// Email sending utility using Brevo SMTP via nodemailer
+// Uses the SMTP credentials provided by the user
 
+import nodemailer from 'nodemailer';
+
+const BREVO_SMTP_SERVER = process.env.BREVO_SMTP_SERVER || 'smtp-relay.brevo.com';
+const BREVO_SMTP_PORT = parseInt(process.env.BREVO_SMTP_PORT || '587');
+const BREVO_SMTP_LOGIN = process.env.BREVO_SMTP_LOGIN || '';
 const BREVO_API_KEY = process.env.BREVO_API_KEY || '';
 const BREVO_FROM_EMAIL = process.env.BREVO_FROM_EMAIL || 'noreply@trishulhub.com';
 const BREVO_FROM_NAME = process.env.BREVO_FROM_NAME || 'TrishulHub Pay Tracker';
+
+// Create reusable transporter using Brevo SMTP
+const transporter = nodemailer.createTransport({
+  host: BREVO_SMTP_SERVER,
+  port: BREVO_SMTP_PORT,
+  secure: false, // true for 465, false for other ports (587 uses STARTTLS)
+  auth: {
+    user: BREVO_SMTP_LOGIN,
+    pass: BREVO_API_KEY, // Brevo uses the API key as the SMTP password
+  },
+});
 
 interface EmailPayload {
   to: { email: string; name?: string }[];
@@ -13,33 +29,21 @@ interface EmailPayload {
 }
 
 export async function sendEmail(payload: EmailPayload): Promise<{ success: boolean; error?: string }> {
-  if (!BREVO_API_KEY) {
-    console.error('Brevo API key not configured');
+  if (!BREVO_SMTP_LOGIN || !BREVO_API_KEY) {
+    console.error('Brevo SMTP credentials not configured');
     return { success: false, error: 'Email service not configured' };
   }
 
   try {
-    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'api-key': BREVO_API_KEY,
-      },
-      body: JSON.stringify({
-        sender: { email: BREVO_FROM_EMAIL, name: BREVO_FROM_NAME },
-        to: payload.to,
-        subject: payload.subject,
-        htmlContent: payload.htmlContent,
-        textContent: payload.textContent || '',
-      }),
+    const result = await transporter.sendMail({
+      from: `"${BREVO_FROM_NAME}" <${BREVO_FROM_EMAIL}>`,
+      to: payload.to.map((t) => t.name ? `"${t.name}" <${t.email}>` : t.email).join(', '),
+      subject: payload.subject,
+      html: payload.htmlContent,
+      text: payload.textContent || '',
     });
 
-    if (!response.ok) {
-      const errorData = await response.text();
-      console.error('Brevo API error:', response.status, errorData);
-      return { success: false, error: `Email service error: ${response.status}` };
-    }
-
+    console.log(`[EMAIL] Sent successfully to ${payload.to.map(t => t.email).join(', ')} - MessageId: ${result.messageId}`);
     return { success: true };
   } catch (error) {
     console.error('Email send error:', error);

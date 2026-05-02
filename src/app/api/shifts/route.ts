@@ -97,7 +97,6 @@ export async function POST(request: NextRequest) {
         breakMinutes: breakMinutes || 0,
         totalHours: Math.round(totalHours * 100) / 100,
         shiftType: shiftType || 'REGULAR',
-        location: null,
         notes: notes || null,
       },
       include: {

@@ -9,9 +9,9 @@ import {
   LogOut, Plus, Edit3, Trash2, ChevronLeft, ChevronRight,
   Moon, Sun, Eye, EyeOff, Copy, Share2, Check, AlertCircle,
   Clock, Building2, TrendingUp, PoundSterling, BarChart3,
-  Shield, Upload, X, Menu, UserPlus, Star, Info, ChevronDown,
+  Shield, X, UserPlus, Star, Info,
   Loader2, Mail, Lock, User, KeyRound, ExternalLink, CheckCircle2,
-  Phone, FileCheck, Briefcase, Calendar
+  FileCheck, Monitor
 } from 'lucide-react';
 import { useAppStore, SessionUser } from '@/lib/store';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -20,19 +20,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter, DrawerClose } from '@/components/ui/drawer';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { InputOTP, InputOTPGroup, InputOTPSlot, InputOTPSeparator } from '@/components/ui/input-otp';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 
 // ============================================================
@@ -137,12 +134,6 @@ interface AdminData {
   };
   recentSignups: { createdAt: string; isPremium: boolean; referredBy: string | null }[];
   monthlySignups: { month: string; count: number }[];
-}
-
-interface ShiftHoursData {
-  totalHours: number;
-  totalShifts: number;
-  shifts: { id: string; date: string; startTime: string; endTime: string; totalHours: number; shiftType: string }[];
 }
 
 // ============================================================
@@ -299,6 +290,13 @@ function calculateShiftHours(startTime: string, endTime: string, breakMinutes: n
   return Math.max(0, Math.round((workedMinutes / 60) * 100) / 100);
 }
 
+function formatTime12h(time24: string): string {
+  const [h, m] = time24.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
 // ============================================================
 // API HELPER
 // ============================================================
@@ -330,6 +328,212 @@ const fadeIn = {
 };
 
 // ============================================================
+// SCROLL TIME PICKER COMPONENT
+// ============================================================
+const ITEM_HEIGHT = 44;
+const VISIBLE_ITEMS = 5;
+const PICKER_HEIGHT = ITEM_HEIGHT * VISIBLE_ITEMS;
+
+function ScrollColumn({
+  items,
+  selectedIndex,
+  onSelect,
+  formatLabel,
+}: {
+  items: number[];
+  selectedIndex: number;
+  onSelect: (index: number) => void;
+  formatLabel?: (val: number) => string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const isScrolling = useRef(false);
+  const scrollTimeout = useRef<ReturnType<typeof setTimeout>>();
+
+  // Scroll to selected item on mount or when selectedIndex changes externally
+  useEffect(() => {
+    if (ref.current && !isScrolling.current) {
+      const targetScroll = selectedIndex * ITEM_HEIGHT;
+      ref.current.scrollTop = targetScroll;
+    }
+  }, [selectedIndex]);
+
+  const handleScroll = useCallback(() => {
+    if (!ref.current) return;
+    isScrolling.current = true;
+
+    if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
+
+    scrollTimeout.current = setTimeout(() => {
+      if (!ref.current) return;
+      const scrollTop = ref.current.scrollTop;
+      const index = Math.round(scrollTop / ITEM_HEIGHT);
+      const clampedIndex = Math.max(0, Math.min(items.length - 1, index));
+      const targetScroll = clampedIndex * ITEM_HEIGHT;
+
+      ref.current.scrollTo({
+        top: targetScroll,
+        behavior: 'smooth',
+      });
+
+      setTimeout(() => {
+        isScrolling.current = false;
+        if (clampedIndex !== selectedIndex) {
+          onSelect(clampedIndex);
+        }
+      }, 150);
+    }, 80);
+  }, [items.length, selectedIndex, onSelect]);
+
+  // Padding items for centering
+  const paddingCount = Math.floor(VISIBLE_ITEMS / 2);
+  const paddingItems = Array(paddingCount).fill(null);
+
+  return (
+    <div
+      className="relative overflow-hidden"
+      style={{ height: PICKER_HEIGHT }}
+    >
+      {/* Center highlight indicator */}
+      <div
+        className="absolute left-0 right-0 z-10 pointer-events-none rounded-lg mx-1"
+        style={{
+          top: paddingCount * ITEM_HEIGHT,
+          height: ITEM_HEIGHT,
+          backgroundColor: 'oklch(0.55 0.2 255 / 0.12)',
+        }}
+      />
+      <div className="dark:hidden">
+        <div
+          className="absolute left-0 right-0 z-10 pointer-events-none rounded-lg mx-1"
+          style={{
+            top: paddingCount * ITEM_HEIGHT,
+            height: ITEM_HEIGHT,
+            backgroundColor: 'oklch(0.55 0.2 255 / 0.12)',
+          }}
+        />
+      </div>
+
+      <div
+        ref={ref}
+        onScroll={handleScroll}
+        className="h-full overflow-y-auto custom-scrollbar"
+        style={{
+          scrollSnapType: 'y mandatory',
+          WebkitOverflowScrolling: 'touch',
+        }}
+      >
+        {/* Top padding */}
+        {paddingItems.map((_, i) => (
+          <div key={`pad-top-${i}`} style={{ height: ITEM_HEIGHT }} />
+        ))}
+
+        {items.map((val, i) => {
+          const isSelected = i === selectedIndex;
+          return (
+            <div
+              key={val}
+              style={{
+                height: ITEM_HEIGHT,
+                scrollSnapAlign: 'center',
+              }}
+              className={`flex items-center justify-center cursor-pointer transition-all duration-100 select-none ${
+                isSelected
+                  ? 'text-primary font-bold text-lg scale-105'
+                  : 'text-muted-foreground text-sm opacity-50'
+              }`}
+              onClick={() => {
+                onSelect(i);
+                ref.current?.scrollTo({
+                  top: i * ITEM_HEIGHT,
+                  behavior: 'smooth',
+                });
+              }}
+            >
+              {formatLabel ? formatLabel(val) : String(val).padStart(2, '0')}
+            </div>
+          );
+        })}
+
+        {/* Bottom padding */}
+        {paddingItems.map((_, i) => (
+          <div key={`pad-bot-${i}`} style={{ height: ITEM_HEIGHT }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ScrollTimePicker({
+  value,
+  onChange,
+  label,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  label?: string;
+}) {
+  const [hours, minutes] = value.split(':').map(Number);
+
+  const hourOptions = Array.from({ length: 24 }, (_, i) => i);
+  const minuteOptions = Array.from({ length: 60 }, (_, i) => i);
+
+  const handleHourChange = useCallback(
+    (index: number) => {
+      const newHour = hourOptions[index];
+      onChange(`${String(newHour).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`);
+    },
+    [hourOptions, minutes, onChange]
+  );
+
+  const handleMinuteChange = useCallback(
+    (index: number) => {
+      const newMinute = minuteOptions[index];
+      onChange(`${String(hours).padStart(2, '0')}:${String(newMinute).padStart(2, '0')}`);
+    },
+    [minuteOptions, hours, onChange]
+  );
+
+  return (
+    <div className="space-y-1">
+      {label && <Label className="text-xs text-muted-foreground">{label}</Label>}
+      <div className="relative rounded-xl border border-border bg-card overflow-hidden">
+        {/* AM/PM display */}
+        <div className="absolute top-2 left-0 right-0 z-20 pointer-events-none text-center">
+          <span className="text-[10px] font-semibold text-primary/70 bg-primary/5 px-2 py-0.5 rounded-full">
+            {hours >= 12 ? 'PM' : 'AM'}
+          </span>
+        </div>
+        <div className="flex items-center">
+          <div className="flex-1">
+            <ScrollColumn
+              items={hourOptions}
+              selectedIndex={hours}
+              onSelect={handleHourChange}
+            />
+          </div>
+          <div className="flex items-center justify-center w-8">
+            <span className="text-2xl font-bold text-muted-foreground">:</span>
+          </div>
+          <div className="flex-1">
+            <ScrollColumn
+              items={minuteOptions}
+              selectedIndex={minutes}
+              onSelect={handleMinuteChange}
+            />
+          </div>
+        </div>
+        {/* Current value display */}
+        <div className="px-3 pb-2 pt-1 text-center border-t border-border/50">
+          <span className="text-xs text-muted-foreground">
+            {formatTime12h(value)} ({value})
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // MAIN APP COMPONENT
 // ============================================================
 export default function TrishulHubPayTracker() {
@@ -356,7 +560,6 @@ export default function TrishulHubPayTracker() {
   // Initialize on mount: check URL params and session
   useEffect(() => {
     const ref = referralParam;
-    // Check session
     apiFetch('/api/auth/session')
       .then((data) => {
         if (data.user) setUser(data.user);
@@ -409,7 +612,7 @@ export default function TrishulHubPayTracker() {
         {!isMobile && <DesktopSidebar currentView={currentView} setCurrentView={setCurrentView} onLogout={handleLogout} user={user} theme={theme} setTheme={setTheme} />}
 
         {/* Main content area */}
-        <main className="flex-1 min-h-screen pb-20 md:pb-0">
+        <main className="flex-1 min-h-screen pb-24 md:pb-0">
           <AnimatePresence mode="wait">
             <motion.div
               key={currentView}
@@ -427,8 +630,6 @@ export default function TrishulHubPayTracker() {
               {currentView === 'companies' && <CompaniesView />}
               {currentView === 'add-company' && <CompanyFormView />}
               {currentView === 'shifts' && <ShiftsView />}
-              {currentView === 'add-shift' && <ShiftFormView />}
-              {currentView === 'edit-shift' && <ShiftFormView isEdit />}
               {currentView === 'referrals' && <ReferralsView user={user} />}
               {currentView === 'settings' && <SettingsView user={user} onLogout={handleLogout} theme={theme} setTheme={setTheme} />}
               {currentView === 'admin' && <AdminView />}
@@ -439,7 +640,7 @@ export default function TrishulHubPayTracker() {
 
       {/* Mobile bottom navigation */}
       {isMobile && (
-        <MobileBottomNav currentView={currentView} setCurrentView={setCurrentView} user={user} />
+        <MobileBottomNav currentView={currentView} setCurrentView={setCurrentView} user={user} theme={theme} setTheme={setTheme} />
       )}
     </div>
   );
@@ -459,7 +660,7 @@ function AuthView({
   const [forgotPassword, setForgotPassword] = useState(false);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-green-50 dark:from-background dark:via-background dark:to-background p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-green-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-4">
       <div className="w-full max-w-md">
         {/* Logo */}
         <motion.div
@@ -579,7 +780,7 @@ function LoginForm({
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground min-h-[44px] min-w-[44px] flex items-center justify-center"
               >
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
@@ -589,7 +790,7 @@ function LoginForm({
             <button
               type="button"
               onClick={onForgotPassword}
-              className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+              className="text-sm text-blue-600 dark:text-blue-400 hover:underline min-h-[44px] flex items-center"
             >
               Forgot Password?
             </button>
@@ -618,6 +819,7 @@ function LoginForm({
 
 // ============================================================
 // SIGNUP FORM (OTP-based, 3 steps)
+// NOTE: OTP is ONLY sent via email - NEVER displayed on screen
 // ============================================================
 function SignupForm({
   onSwitchToLogin, setUser, referralParam,
@@ -637,7 +839,6 @@ function SignupForm({
 
   // Step 2: OTP
   const [otpCode, setOtpCode] = useState('');
-  const [devCode, setDevCode] = useState<string | null>(null);
   const [otpSent, setOtpSent] = useState(false);
   const [otpVerified, setOtpVerified] = useState(false);
 
@@ -668,13 +869,10 @@ function SignupForm({
     }
     setLoading(true);
     try {
-      const data = await apiFetch('/api/auth/send-otp', {
+      await apiFetch('/api/auth/send-otp', {
         method: 'POST',
         body: JSON.stringify({ email, type: 'SIGNUP' }),
       });
-      if (data.devCode) {
-        setDevCode(data.devCode);
-      }
       setOtpSent(true);
       setStep(2);
       toast.success('Verification code sent to your email');
@@ -754,15 +952,6 @@ function SignupForm({
         </div>
       </CardHeader>
       <CardContent>
-        {/* DEV MODE banner */}
-        {devCode && (
-          <div className="mb-4 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-            <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-              DEV MODE: Your verification code is <span className="font-mono text-lg">{devCode}</span>
-            </p>
-          </div>
-        )}
-
         {step === 1 && (
           <div className="space-y-4">
             <div className="space-y-2">
@@ -792,7 +981,7 @@ function SignupForm({
                   className="pl-10 pr-10 h-12"
                   autoComplete="new-password"
                 />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground min-h-[44px] min-w-[44px] flex items-center justify-center">
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
@@ -802,6 +991,9 @@ function SignupForm({
               <div className="relative">
                 <UserPlus className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input id="signup-referral" placeholder="TRISHUL-XXXXXX" value={referralCode} onChange={(e) => setReferralCode(e.target.value.toUpperCase())} className="pl-10 h-12" />
+                {referralParam && referralCode === referralParam && (
+                  <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-green-600 dark:text-green-400" />
+                )}
               </div>
               {referralParam && (
                 <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
@@ -885,7 +1077,7 @@ function SignupForm({
             <button
               type="button"
               onClick={handleSendOtp}
-              className="w-full text-sm text-muted-foreground hover:text-foreground text-center"
+              className="w-full text-sm text-muted-foreground hover:text-foreground text-center min-h-[44px]"
               disabled={loading}
             >
               Didn&apos;t get a code? Resend
@@ -893,7 +1085,7 @@ function SignupForm({
             <button
               type="button"
               onClick={() => { setStep(1); setOtpSent(false); setOtpVerified(false); setOtpCode(''); }}
-              className="w-full text-sm text-muted-foreground hover:text-foreground text-center"
+              className="w-full text-sm text-muted-foreground hover:text-foreground text-center min-h-[44px]"
             >
               ← Back to details
             </button>
@@ -941,6 +1133,7 @@ function SignupForm({
 
 // ============================================================
 // FORGOT PASSWORD VIEW
+// NOTE: OTP is ONLY sent via email - NEVER displayed on screen
 // ============================================================
 function ForgotPasswordView({ onBack }: { onBack: () => void }) {
   const [email, setEmail] = useState('');
@@ -949,17 +1142,15 @@ function ForgotPasswordView({ onBack }: { onBack: () => void }) {
   const [showPassword, setShowPassword] = useState(false);
   const [step, setStep] = useState(1); // 1=email, 2=otp, 3=new password
   const [loading, setLoading] = useState(false);
-  const [devCode, setDevCode] = useState<string | null>(null);
 
   const handleSendOtp = async () => {
     if (!email) { toast.error('Please enter your email'); return; }
     setLoading(true);
     try {
-      const data = await apiFetch('/api/auth/forgot-password', {
+      await apiFetch('/api/auth/forgot-password', {
         method: 'POST',
         body: JSON.stringify({ email }),
       });
-      if (data.devCode) setDevCode(data.devCode);
       setStep(2);
       toast.success('If this email is registered, you will receive a verification code');
     } catch (err: unknown) {
@@ -1015,14 +1206,6 @@ function ForgotPasswordView({ onBack }: { onBack: () => void }) {
         </div>
       </CardHeader>
       <CardContent>
-        {devCode && (
-          <div className="mb-4 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-            <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-              DEV MODE: Your verification code is <span className="font-mono text-lg">{devCode}</span>
-            </p>
-          </div>
-        )}
-
         {step === 1 && (
           <div className="space-y-4">
             <div className="space-y-2">
@@ -1080,7 +1263,7 @@ function ForgotPasswordView({ onBack }: { onBack: () => void }) {
                   onChange={(e) => setNewPassword(e.target.value)}
                   className="pl-10 pr-10 h-12"
                 />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground min-h-[44px] min-w-[44px] flex items-center justify-center">
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
@@ -1093,7 +1276,7 @@ function ForgotPasswordView({ onBack }: { onBack: () => void }) {
         )}
       </CardContent>
       <CardFooter className="justify-center pb-6">
-        <button onClick={onBack} className="text-sm text-muted-foreground hover:text-foreground">
+        <button onClick={onBack} className="text-sm text-muted-foreground hover:text-foreground min-h-[44px] flex items-center">
           ← Back to Sign In
         </button>
       </CardFooter>
@@ -1126,6 +1309,15 @@ function DesktopSidebar({
     navItems.push({ id: 'admin', label: 'Admin', icon: Shield });
   }
 
+  const cycleTheme = () => {
+    if (theme === 'light') setTheme('dark');
+    else if (theme === 'dark') setTheme('system');
+    else setTheme('light');
+  };
+
+  const themeIcon = theme === 'dark' ? Moon : theme === 'light' ? Sun : Monitor;
+  const ThemeIcon = themeIcon;
+
   return (
     <aside className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 border-r border-border bg-card">
       <div className="flex items-center gap-3 px-6 py-5 border-b border-border">
@@ -1150,7 +1342,7 @@ function DesktopSidebar({
             <button
               key={item.id}
               onClick={() => setCurrentView(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${
                 isActive
                   ? 'bg-primary text-primary-foreground'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -1164,12 +1356,14 @@ function DesktopSidebar({
       </nav>
       <div className="px-3 py-4 border-t border-border space-y-2">
         <div className="flex items-center justify-between px-3 py-2">
-          <span className="text-sm text-muted-foreground">Theme</span>
+          <span className="text-sm text-muted-foreground">
+            Theme: <span className="capitalize font-medium text-foreground">{theme || 'system'}</span>
+          </span>
           <button
-            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground"
+            onClick={cycleTheme}
+            className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground min-h-[44px] min-w-[44px] flex items-center justify-center"
           >
-            {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            <ThemeIcon className="h-4 w-4" />
           </button>
         </div>
         <div className="px-3 py-1">
@@ -1178,7 +1372,7 @@ function DesktopSidebar({
         </div>
         <button
           onClick={onLogout}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-destructive hover:bg-destructive/10 transition-colors"
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-destructive hover:bg-destructive/10 transition-colors min-h-[44px]"
         >
           <LogOut className="h-4 w-4" />
           Sign Out
@@ -1192,11 +1386,13 @@ function DesktopSidebar({
 // MOBILE BOTTOM NAV
 // ============================================================
 function MobileBottomNav({
-  currentView, setCurrentView, user,
+  currentView, setCurrentView, user, theme, setTheme,
 }: {
   currentView: string;
   setCurrentView: (v: string) => void;
   user: SessionUser;
+  theme: string | undefined;
+  setTheme: (t: string) => void;
 }) {
   const navItems = [
     { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
@@ -1207,8 +1403,8 @@ function MobileBottomNav({
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border safe-area-bottom md:hidden">
-      <div className="flex items-center justify-around h-16 px-2">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-md border-t border-border md:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+      <div className="flex items-center justify-around h-16 px-1">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = currentView === item.id;
@@ -1216,7 +1412,7 @@ function MobileBottomNav({
             <button
               key={item.id}
               onClick={() => setCurrentView(item.id)}
-              className={`flex flex-col items-center justify-center gap-0.5 min-w-[56px] py-1 transition-colors ${
+              className={`flex flex-col items-center justify-center gap-0.5 min-w-[48px] min-h-[44px] py-1 transition-colors rounded-lg ${
                 isActive ? 'text-blue-600 dark:text-blue-400' : 'text-muted-foreground'
               }`}
             >
@@ -1262,16 +1458,16 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
   const { stats, companies, recentRecords, referralInfo, shiftSummary, comparison } = data;
 
   return (
-    <div className="p-4 md:p-6 md:ml-64 space-y-6 max-w-6xl">
+    <div className="p-4 md:p-6 md:ml-64 space-y-6 max-w-6xl overflow-x-hidden">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Welcome back, {user.name.split(' ')[0]}!</h1>
-          <p className="text-muted-foreground">Here&apos;s your payment overview</p>
+          <p className="text-muted-foreground text-sm">Here&apos;s your payment overview</p>
         </div>
         <div className="flex items-center gap-2">
           <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-            <SelectTrigger className="w-[180px]">
+            <SelectTrigger className="w-full sm:w-[180px]">
               <SelectValue placeholder="All Companies" />
             </SelectTrigger>
             <SelectContent>
@@ -1336,7 +1532,7 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
               <Badge className={STATUS_COLORS.PAID}>{stats.paidCount}</Badge>
             </div>
             <Separator />
-            <Button variant="outline" size="sm" className="w-full" onClick={() => setCurrentView('add-record')}>
+            <Button variant="outline" size="sm" className="w-full min-h-[44px]" onClick={() => setCurrentView('add-record')}>
               <Plus className="h-4 w-4 mr-2" /> Add Payment Record
             </Button>
           </CardContent>
@@ -1364,7 +1560,7 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
               <span className="font-semibold text-foreground">{shiftSummary.totalBreakMinutes}m</span>
             </div>
             <Separator />
-            <Button variant="outline" size="sm" className="w-full" onClick={() => setCurrentView('shifts')}>
+            <Button variant="outline" size="sm" className="w-full min-h-[44px]" onClick={() => setCurrentView('shifts')}>
               <CalendarDays className="h-4 w-4 mr-2" /> View Shifts
             </Button>
           </CardContent>
@@ -1380,7 +1576,7 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
                 <Building2 className="h-4 w-4 text-muted-foreground" />
                 Companies
               </CardTitle>
-              <Button variant="ghost" size="sm" onClick={() => setCurrentView('add-company')}>
+              <Button variant="ghost" size="sm" onClick={() => setCurrentView('add-company')} className="min-h-[44px] min-w-[44px]">
                 <Plus className="h-4 w-4" />
               </Button>
             </div>
@@ -1425,7 +1621,7 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
                 <FileCheck className="h-4 w-4 text-muted-foreground" />
                 Recent Records
               </CardTitle>
-              <Button variant="ghost" size="sm" onClick={() => setCurrentView('records')}>
+              <Button variant="ghost" size="sm" onClick={() => setCurrentView('records')} className="min-h-[44px]">
                 View All <ChevronRight className="h-4 w-4 ml-1" />
               </Button>
             </div>
@@ -1433,11 +1629,11 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
           <CardContent className="space-y-2">
             {recentRecords.slice(0, 5).map((r) => (
               <div key={r.id} className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors">
-                <div>
-                  <p className="text-sm font-medium text-foreground">{r.company.name}</p>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">{r.company.name}</p>
                   <p className="text-xs text-muted-foreground">{getMonthName(r.month)} {r.year}</p>
                 </div>
-                <div className="text-right">
+                <div className="text-right shrink-0 ml-3">
                   <p className="text-sm font-medium text-foreground">{formatCurrency(r.totalExpected)}</p>
                   <Badge className={STATUS_COLORS[r.status] || ''}>{r.status}</Badge>
                 </div>
@@ -1453,8 +1649,8 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
           <CardContent className="py-12 text-center">
             <Building2 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-foreground mb-1">Get Started</h3>
-            <p className="text-muted-foreground mb-4">Add your first company to start tracking payments</p>
-            <Button onClick={() => setCurrentView('add-company')} className="bg-gradient-to-r from-blue-600 to-green-600 text-white">
+            <p className="text-muted-foreground mb-4 text-sm">Add your first company to start tracking payments</p>
+            <Button onClick={() => setCurrentView('add-company')} className="bg-gradient-to-r from-blue-600 to-green-600 text-white min-h-[44px]">
               <Plus className="h-4 w-4 mr-2" /> Add Company
             </Button>
           </CardContent>
@@ -1538,7 +1734,7 @@ function RecordsView() {
   if (loading) return <LoadingSkeleton />;
 
   return (
-    <div className="p-4 md:p-6 md:ml-64 space-y-4 max-w-6xl">
+    <div className="p-4 md:p-6 md:ml-64 space-y-4 max-w-6xl overflow-x-hidden">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-foreground">Payment Records</h1>
         <Button onClick={() => setCurrentView('add-record')} className="bg-gradient-to-r from-blue-600 to-green-600 text-white" size="sm">
@@ -1549,14 +1745,14 @@ function RecordsView() {
       {/* Filters */}
       <div className="flex gap-2 flex-wrap">
         <Select value={filterCompany} onValueChange={setFilterCompany}>
-          <SelectTrigger className="w-[160px]"><SelectValue placeholder="All Companies" /></SelectTrigger>
+          <SelectTrigger className="w-full sm:w-[160px]"><SelectValue placeholder="All Companies" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Companies</SelectItem>
             {companies.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
           </SelectContent>
         </Select>
         <Select value={filterStatus} onValueChange={setFilterStatus}>
-          <SelectTrigger className="w-[130px]"><SelectValue placeholder="All Status" /></SelectTrigger>
+          <SelectTrigger className="w-full sm:w-[130px]"><SelectValue placeholder="All Status" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Status</SelectItem>
             <SelectItem value="PENDING">Pending</SelectItem>
@@ -1571,8 +1767,8 @@ function RecordsView() {
           <CardContent className="py-12 text-center">
             <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-foreground mb-1">No Records</h3>
-            <p className="text-muted-foreground mb-4">Add your first payment record</p>
-            <Button onClick={() => setCurrentView('add-record')} className="bg-gradient-to-r from-blue-600 to-green-600 text-white">
+            <p className="text-muted-foreground mb-4 text-sm">Add your first payment record</p>
+            <Button onClick={() => setCurrentView('add-record')} className="bg-gradient-to-r from-blue-600 to-green-600 text-white min-h-[44px]">
               <Plus className="h-4 w-4 mr-2" /> Add Record
             </Button>
           </CardContent>
@@ -1615,7 +1811,7 @@ function RecordsView() {
                         </div>
                       )}
                     </div>
-                    {r.notes && <p className="text-xs text-muted-foreground mt-2 truncate">📝 {r.notes}</p>}
+                    {r.notes && <p className="text-xs text-muted-foreground mt-2 truncate">{r.notes}</p>}
                     {r.paySlipUrl && (
                       <a href={r.paySlipUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1 inline-flex items-center gap-1">
                         <ExternalLink className="h-3 w-3" /> {r.paySlipName || 'View Payslip'}
@@ -1623,10 +1819,10 @@ function RecordsView() {
                     )}
                   </div>
                   <div className="flex gap-1 shrink-0">
-                    <Button variant="ghost" size="icon" onClick={() => handleEdit(r.id)} className="h-9 w-9">
+                    <Button variant="ghost" size="icon" onClick={() => handleEdit(r.id)} className="h-10 w-10">
                       <Edit3 className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => setDeleteId(r.id)} className="h-9 w-9 text-destructive hover:text-destructive">
+                    <Button variant="ghost" size="icon" onClick={() => setDeleteId(r.id)} className="h-10 w-10 text-destructive hover:text-destructive">
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
@@ -1750,7 +1946,6 @@ function RecordFormView({ isEdit = false }: { isEdit?: boolean }) {
           method: 'PUT',
           body: JSON.stringify(body),
         });
-        // Upload payslip if selected
         if (paySlipFile) {
           await uploadPayslip(selectedRecordId);
         }
@@ -1760,7 +1955,6 @@ function RecordFormView({ isEdit = false }: { isEdit?: boolean }) {
           method: 'POST',
           body: JSON.stringify(body),
         });
-        // Upload payslip if selected
         if (paySlipFile && data.record?.id) {
           await uploadPayslip(data.record.id);
         }
@@ -1786,9 +1980,9 @@ function RecordFormView({ isEdit = false }: { isEdit?: boolean }) {
   const years = Array.from({ length: 5 }, (_, i) => currentYear - 2 + i);
 
   return (
-    <div className="p-4 md:p-6 md:ml-64 space-y-4 max-w-2xl">
+    <div className="p-4 md:p-6 md:ml-64 space-y-4 max-w-2xl overflow-x-hidden">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => setCurrentView('records')}>
+        <Button variant="ghost" size="icon" onClick={() => setCurrentView('records')} className="min-h-[44px] min-w-[44px]">
           <ChevronLeft className="h-5 w-5" />
         </Button>
         <h1 className="text-xl font-bold text-foreground">{isEdit ? 'Edit Record' : 'Add Record'}</h1>
@@ -1911,8 +2105,8 @@ function RecordFormView({ isEdit = false }: { isEdit?: boolean }) {
             </div>
 
             <div className="flex gap-3 pt-2">
-              <Button type="button" variant="outline" onClick={() => setCurrentView('records')} className="flex-1 h-12">Cancel</Button>
-              <Button type="submit" disabled={loading} className="flex-1 h-12 bg-gradient-to-r from-blue-600 to-green-600 text-white">
+              <Button type="button" variant="outline" onClick={() => setCurrentView('records')} className="flex-1 h-12 min-h-[44px]">Cancel</Button>
+              <Button type="submit" disabled={loading} className="flex-1 h-12 min-h-[44px] bg-gradient-to-r from-blue-600 to-green-600 text-white">
                 {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
                 {isEdit ? 'Update' : 'Create'} Record
               </Button>
@@ -1985,7 +2179,7 @@ function CompaniesView() {
   if (loading) return <LoadingSkeleton />;
 
   return (
-    <div className="p-4 md:p-6 md:ml-64 space-y-4 max-w-4xl">
+    <div className="p-4 md:p-6 md:ml-64 space-y-4 max-w-4xl overflow-x-hidden">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-foreground">Companies</h1>
         <Button onClick={() => setCurrentView('add-company')} className="bg-gradient-to-r from-blue-600 to-green-600 text-white" size="sm">
@@ -1998,8 +2192,8 @@ function CompaniesView() {
           <CardContent className="py-12 text-center">
             <Building2 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-foreground mb-1">No Companies</h3>
-            <p className="text-muted-foreground mb-4">Add a company to start tracking payments</p>
-            <Button onClick={() => setCurrentView('add-company')} className="bg-gradient-to-r from-blue-600 to-green-600 text-white">
+            <p className="text-muted-foreground mb-4 text-sm">Add a company to start tracking payments</p>
+            <Button onClick={() => setCurrentView('add-company')} className="bg-gradient-to-r from-blue-600 to-green-600 text-white min-h-[44px]">
               <Plus className="h-4 w-4 mr-2" /> Add Company
             </Button>
           </CardContent>
@@ -2019,10 +2213,10 @@ function CompaniesView() {
                   </div>
                 </div>
                 <div className="flex gap-1">
-                  <Button variant="ghost" size="icon" onClick={() => handleEdit(c)} className="h-9 w-9">
+                  <Button variant="ghost" size="icon" onClick={() => handleEdit(c)} className="h-10 w-10">
                     <Edit3 className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={() => setDeleteId(c.id)} className="h-9 w-9 text-destructive">
+                  <Button variant="ghost" size="icon" onClick={() => setDeleteId(c.id)} className="h-10 w-10 text-destructive">
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
@@ -2095,9 +2289,9 @@ function CompanyFormView() {
   };
 
   return (
-    <div className="p-4 md:p-6 md:ml-64 space-y-4 max-w-md">
+    <div className="p-4 md:p-6 md:ml-64 space-y-4 max-w-md overflow-x-hidden">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => setCurrentView('companies')}>
+        <Button variant="ghost" size="icon" onClick={() => setCurrentView('companies')} className="min-h-[44px] min-w-[44px]">
           <ChevronLeft className="h-5 w-5" />
         </Button>
         <h1 className="text-xl font-bold text-foreground">Add Company</h1>
@@ -2113,8 +2307,8 @@ function CompanyFormView() {
               </div>
             </div>
             <div className="flex gap-3">
-              <Button type="button" variant="outline" onClick={() => setCurrentView('companies')} className="flex-1 h-12">Cancel</Button>
-              <Button type="submit" disabled={loading} className="flex-1 h-12 bg-gradient-to-r from-blue-600 to-green-600 text-white">
+              <Button type="button" variant="outline" onClick={() => setCurrentView('companies')} className="flex-1 h-12 min-h-[44px]">Cancel</Button>
+              <Button type="submit" disabled={loading} className="flex-1 h-12 min-h-[44px] bg-gradient-to-r from-blue-600 to-green-600 text-white">
                 {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
                 Add Company
               </Button>
@@ -2160,10 +2354,6 @@ function ShiftsView() {
   const fetchShifts = async () => {
     setLoading(true);
     try {
-      const weekDates = getWeekDates(weekStart);
-      const startDate = formatDateStr(weekDates[0]);
-      const endDate = formatDateStr(weekDates[6]);
-      // Fetch all shifts for broader range then filter client-side
       const data = await apiFetch('/api/shifts');
       setShifts(data.shifts || []);
     } catch {
@@ -2229,13 +2419,13 @@ function ShiftsView() {
   if (loading) return <LoadingSkeleton />;
 
   return (
-    <div className="p-4 md:p-6 md:ml-64 space-y-4 max-w-6xl">
+    <div className="p-4 md:p-6 md:ml-64 space-y-4 max-w-6xl overflow-x-hidden">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-foreground">Shifts</h1>
         <Button
           onClick={() => {
             setSelectedShiftId(null);
-            setCurrentView('add-shift');
+            setSelectedDay(new Date());
           }}
           className="bg-gradient-to-r from-blue-600 to-green-600 text-white"
           size="sm"
@@ -2266,7 +2456,7 @@ function ShiftsView() {
 
       {/* Week Navigation */}
       <div className="flex items-center justify-between gap-2">
-        <Button variant="outline" size="icon" onClick={prevWeek} className="h-10 w-10">
+        <Button variant="outline" size="icon" onClick={prevWeek} className="h-10 w-10 min-h-[44px] min-w-[44px]">
           <ChevronLeft className="h-4 w-4" />
         </Button>
         <div className="flex flex-col items-center">
@@ -2274,12 +2464,12 @@ function ShiftsView() {
             {weekDates[0].toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – {weekDates[6].toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
           </span>
           {!isCurrentWeek && (
-            <button onClick={goThisWeek} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">
+            <button onClick={goThisWeek} className="text-xs text-blue-600 dark:text-blue-400 hover:underline min-h-[44px] flex items-center">
               Go to this week
             </button>
           )}
         </div>
-        <Button variant="outline" size="icon" onClick={nextWeek} className="h-10 w-10">
+        <Button variant="outline" size="icon" onClick={nextWeek} className="h-10 w-10 min-h-[44px] min-w-[44px]">
           <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
@@ -2298,7 +2488,7 @@ function ShiftsView() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: idx * 0.03 }}
             >
-              <Card className={`border-border ${isCurrentDay ? 'ring-2 ring-blue-500/30 dark:ring-blue-400/30' : ''} ${isWeekend ? 'bg-muted/30' : ''}`}>
+              <Card className={`border-border ${isCurrentDay ? 'ring-2 ring-blue-500/30 dark:ring-blue-400/30' : ''} ${isWeekend ? 'bg-muted/30 dark:bg-muted/10' : ''}`}>
                 <CardContent className="p-3 md:p-4">
                   {/* Day header */}
                   <div className="flex items-center justify-between mb-2">
@@ -2314,7 +2504,7 @@ function ShiftsView() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8"
+                      className="h-8 w-8 min-h-[44px] min-w-[44px]"
                       onClick={() => {
                         setSelectedShiftId(null);
                         setSelectedDay(date);
@@ -2345,12 +2535,12 @@ function ShiftsView() {
                               </div>
                               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                 <Clock className="h-3 w-3" />
-                                <span>{shift.startTime} – {shift.endTime}</span>
+                                <span>{formatTime12h(shift.startTime)} – {formatTime12h(shift.endTime)}</span>
                                 <span>•</span>
                                 <span>{shift.totalHours}h</span>
                                 {shift.breakMinutes > 0 && <span>• {shift.breakMinutes}m break</span>}
                               </div>
-                              {shift.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">📝 {shift.notes}</p>}
+                              {shift.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{shift.notes}</p>}
                             </div>
                             <div className="flex gap-1 shrink-0">
                               <Button
@@ -2471,7 +2661,7 @@ function ShiftDaySheet({
 
   return (
     <Sheet open={open} onOpenChange={(v) => { if (!v) { onClose(); resetForm(); } }}>
-      <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto">
+      <SheetContent side="bottom" className="max-h-[90vh] overflow-y-auto">
         <SheetHeader>
           <SheetTitle>Add Shift – {date.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</SheetTitle>
           <SheetDescription>Add a new shift for this day</SheetDescription>
@@ -2486,16 +2676,13 @@ function ShiftDaySheet({
               </SelectContent>
             </Select>
           </div>
+
+          {/* Time Pickers */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label>Start Time</Label>
-              <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="h-12" />
-            </div>
-            <div className="space-y-2">
-              <Label>End Time</Label>
-              <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className="h-12" />
-            </div>
+            <ScrollTimePicker value={startTime} onChange={setStartTime} label="Start Time" />
+            <ScrollTimePicker value={endTime} onChange={setEndTime} label="End Time" />
           </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label>Break (minutes)</Label>
@@ -2524,7 +2711,7 @@ function ShiftDaySheet({
           <Button
             onClick={handleSubmit}
             disabled={loading || !companyId}
-            className="w-full h-12 bg-gradient-to-r from-blue-600 to-green-600 text-white"
+            className="w-full h-12 min-h-[44px] bg-gradient-to-r from-blue-600 to-green-600 text-white"
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
             Add Shift
@@ -2596,7 +2783,7 @@ function ShiftEditSheet({
 
   return (
     <Sheet open={!!shift} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto">
+      <SheetContent side="bottom" className="max-h-[90vh] overflow-y-auto">
         <SheetHeader>
           <SheetTitle>Edit Shift – {new Date(shift.date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</SheetTitle>
           <SheetDescription>Update shift details</SheetDescription>
@@ -2611,16 +2798,13 @@ function ShiftEditSheet({
               </SelectContent>
             </Select>
           </div>
+
+          {/* Time Pickers */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label>Start Time</Label>
-              <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="h-12" />
-            </div>
-            <div className="space-y-2">
-              <Label>End Time</Label>
-              <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className="h-12" />
-            </div>
+            <ScrollTimePicker value={startTime} onChange={setStartTime} label="Start Time" />
+            <ScrollTimePicker value={endTime} onChange={setEndTime} label="End Time" />
           </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label>Break (minutes)</Label>
@@ -2650,14 +2834,14 @@ function ShiftEditSheet({
             <Button
               variant="destructive"
               onClick={() => onDelete(shift.id)}
-              className="h-12"
+              className="h-12 min-h-[44px]"
             >
               <Trash2 className="h-4 w-4 mr-2" /> Delete
             </Button>
             <Button
               onClick={handleSubmit}
               disabled={loading}
-              className="flex-1 h-12 bg-gradient-to-r from-blue-600 to-green-600 text-white"
+              className="flex-1 h-12 min-h-[44px] bg-gradient-to-r from-blue-600 to-green-600 text-white"
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
               Update Shift
@@ -2666,146 +2850,6 @@ function ShiftEditSheet({
         </div>
       </SheetContent>
     </Sheet>
-  );
-}
-
-// ============================================================
-// SHIFT FORM VIEW (standalone add)
-// ============================================================
-function ShiftFormView({ isEdit = false }: { isEdit?: boolean }) {
-  const { setCurrentView, selectedShiftId } = useAppStore();
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [companyId, setCompanyId] = useState('');
-  const [date, setDate] = useState(formatDateStr(new Date()));
-  const [startTime, setStartTime] = useState('09:00');
-  const [endTime, setEndTime] = useState('17:00');
-  const [breakMinutes, setBreakMinutes] = useState('30');
-  const [shiftType, setShiftType] = useState('REGULAR');
-  const [notes, setNotes] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    fetchCompanies();
-    if (isEdit && selectedShiftId) fetchShift();
-  }, []);
-
-  const fetchCompanies = async () => {
-    try {
-      const data = await apiFetch('/api/companies');
-      setCompanies(data.companies);
-    } catch { /* ignore */ }
-  };
-
-  const fetchShift = async () => {
-    try {
-      const data = await apiFetch('/api/shifts');
-      const shift = data.shifts.find((s: Shift) => s.id === selectedShiftId);
-      if (shift) {
-        setCompanyId(shift.companyId);
-        setDate(shift.date);
-        setStartTime(shift.startTime);
-        setEndTime(shift.endTime);
-        setBreakMinutes(shift.breakMinutes.toString());
-        setShiftType(shift.shiftType);
-        setNotes(shift.notes || '');
-      }
-    } catch { /* ignore */ }
-  };
-
-  const totalHours = calculateShiftHours(startTime, endTime, parseInt(breakMinutes) || 0);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!companyId || !date || !startTime || !endTime) { toast.error('Please fill in required fields'); return; }
-    setLoading(true);
-    try {
-      const body = { companyId, date, startTime, endTime, breakMinutes: parseInt(breakMinutes) || 0, shiftType, notes: notes || null };
-      if (isEdit && selectedShiftId) {
-        await apiFetch(`/api/shifts/${selectedShiftId}`, { method: 'PUT', body: JSON.stringify(body) });
-        toast.success('Shift updated');
-      } else {
-        await apiFetch('/api/shifts', { method: 'POST', body: JSON.stringify(body) });
-        toast.success('Shift added');
-      }
-      setCurrentView('shifts');
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save shift');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="p-4 md:p-6 md:ml-64 space-y-4 max-w-2xl">
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => setCurrentView('shifts')}>
-          <ChevronLeft className="h-5 w-5" />
-        </Button>
-        <h1 className="text-xl font-bold text-foreground">{isEdit ? 'Edit Shift' : 'Add Shift'}</h1>
-      </div>
-
-      <Card className="border-border">
-        <CardContent className="p-4 md:p-6">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label>Company</Label>
-              <Select value={companyId} onValueChange={setCompanyId}>
-                <SelectTrigger className="h-12"><SelectValue placeholder="Select company" /></SelectTrigger>
-                <SelectContent>
-                  {companies.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Date</Label>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-12" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Start Time</Label>
-                <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="h-12" />
-              </div>
-              <div className="space-y-2">
-                <Label>End Time</Label>
-                <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className="h-12" />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Break (minutes)</Label>
-                <Input type="number" value={breakMinutes} onChange={(e) => setBreakMinutes(e.target.value)} className="h-12" />
-              </div>
-              <div className="space-y-2">
-                <Label>Total Hours</Label>
-                <div className="h-12 flex items-center px-3 rounded-md border border-border bg-muted/50">
-                  <span className="text-foreground font-medium">{totalHours}h</span>
-                </div>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Shift Type</Label>
-              <Select value={shiftType} onValueChange={setShiftType}>
-                <SelectTrigger className="h-12"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {SHIFT_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Notes</Label>
-              <Textarea placeholder="Optional notes..." value={notes} onChange={(e) => setNotes(e.target.value)} />
-            </div>
-            <div className="flex gap-3 pt-2">
-              <Button type="button" variant="outline" onClick={() => setCurrentView('shifts')} className="flex-1 h-12">Cancel</Button>
-              <Button type="submit" disabled={loading} className="flex-1 h-12 bg-gradient-to-r from-blue-600 to-green-600 text-white">
-                {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
-                {isEdit ? 'Update' : 'Add'} Shift
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
   );
 }
 
@@ -2873,7 +2917,7 @@ function ReferralsView({ user }: { user: SessionUser }) {
   if (loading || !data) return <LoadingSkeleton />;
 
   return (
-    <div className="p-4 md:p-6 md:ml-64 space-y-6 max-w-2xl">
+    <div className="p-4 md:p-6 md:ml-64 space-y-6 max-w-2xl overflow-x-hidden">
       <h1 className="text-xl font-bold text-foreground">Referrals</h1>
 
       {/* Premium status */}
@@ -2923,7 +2967,7 @@ function ReferralsView({ user }: { user: SessionUser }) {
         <CardContent className="space-y-4">
           <div className="flex items-center gap-2 p-3 rounded-lg border border-border bg-muted/50">
             <span className="font-mono text-lg font-bold text-foreground flex-1 text-center">{user.referralCode}</span>
-            <Button variant="outline" size="sm" onClick={copyCode}>
+            <Button variant="outline" size="sm" onClick={copyCode} className="min-h-[44px]">
               {copiedCode ? <Check className="h-4 w-4 text-green-600 dark:text-green-400" /> : <Copy className="h-4 w-4" />}
             </Button>
           </div>
@@ -2939,11 +2983,11 @@ function ReferralsView({ user }: { user: SessionUser }) {
         <CardContent className="space-y-3">
           <div className="flex items-center gap-2 p-3 rounded-lg border border-border bg-muted/50">
             <span className="text-sm text-foreground truncate flex-1">{referralLink}</span>
-            <Button variant="outline" size="sm" onClick={copyLink}>
+            <Button variant="outline" size="sm" onClick={copyLink} className="min-h-[44px] shrink-0">
               {copiedLink ? <Check className="h-4 w-4 text-green-600 dark:text-green-400" /> : <Copy className="h-4 w-4" />}
             </Button>
           </div>
-          <Button onClick={shareLink} className="w-full h-12 bg-gradient-to-r from-blue-600 to-green-600 text-white">
+          <Button onClick={shareLink} className="w-full h-12 min-h-[44px] bg-gradient-to-r from-blue-600 to-green-600 text-white">
             <Share2 className="h-4 w-4 mr-2" /> Share Link
           </Button>
         </CardContent>
@@ -2994,8 +3038,14 @@ function ReferralsView({ user }: { user: SessionUser }) {
 function SettingsView({ user, onLogout, theme, setTheme }: { user: SessionUser; onLogout: () => void; theme: string | undefined; setTheme: (t: string) => void }) {
   const { setCurrentView } = useAppStore();
 
+  const themeOptions = [
+    { value: 'light', label: 'Light', icon: Sun },
+    { value: 'dark', label: 'Dark', icon: Moon },
+    { value: 'system', label: 'System', icon: Monitor },
+  ];
+
   return (
-    <div className="p-4 md:p-6 md:ml-64 space-y-6 max-w-2xl">
+    <div className="p-4 md:p-6 md:ml-64 space-y-6 max-w-2xl overflow-x-hidden">
       <h1 className="text-xl font-bold text-foreground">Settings</h1>
 
       {/* Profile */}
@@ -3038,15 +3088,28 @@ function SettingsView({ user, onLogout, theme, setTheme }: { user: SessionUser; 
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-foreground">Dark Mode</p>
-              <p className="text-xs text-muted-foreground">Toggle between light and dark theme</p>
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-foreground">Theme</p>
+            <div className="grid grid-cols-3 gap-2">
+              {themeOptions.map((opt) => {
+                const Icon = opt.icon;
+                const isActive = (theme || 'system') === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    onClick={() => setTheme(opt.value)}
+                    className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all min-h-[44px] ${
+                      isActive
+                        ? 'border-primary bg-primary/5 text-primary'
+                        : 'border-border text-muted-foreground hover:border-muted-foreground/30'
+                    }`}
+                  >
+                    <Icon className="h-5 w-5" />
+                    <span className="text-xs font-medium">{opt.label}</span>
+                  </button>
+                );
+              })}
             </div>
-            <Switch
-              checked={theme === 'dark'}
-              onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
-            />
           </div>
         </CardContent>
       </Card>
@@ -3057,10 +3120,10 @@ function SettingsView({ user, onLogout, theme, setTheme }: { user: SessionUser; 
           <CardTitle className="text-base">Quick Links</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          <Button variant="ghost" className="w-full justify-start h-12" onClick={() => setCurrentView('companies')}>
+          <Button variant="ghost" className="w-full justify-start h-12 min-h-[44px]" onClick={() => setCurrentView('companies')}>
             <Building2 className="h-4 w-4 mr-3 text-muted-foreground" /> Manage Companies
           </Button>
-          <Button variant="ghost" className="w-full justify-start h-12" onClick={() => setCurrentView('referrals')}>
+          <Button variant="ghost" className="w-full justify-start h-12 min-h-[44px]" onClick={() => setCurrentView('referrals')}>
             <Users className="h-4 w-4 mr-3 text-muted-foreground" /> Referral Programme
           </Button>
         </CardContent>
@@ -3069,7 +3132,7 @@ function SettingsView({ user, onLogout, theme, setTheme }: { user: SessionUser; 
       {/* Sign Out */}
       <Card className="border-border">
         <CardContent className="p-4">
-          <Button variant="destructive" className="w-full h-12" onClick={onLogout}>
+          <Button variant="destructive" className="w-full h-12 min-h-[44px]" onClick={onLogout}>
             <LogOut className="h-4 w-4 mr-2" /> Sign Out
           </Button>
         </CardContent>
@@ -3110,7 +3173,7 @@ function AdminView() {
   const { stats, recentSignups, monthlySignups } = data;
 
   return (
-    <div className="p-4 md:p-6 md:ml-64 space-y-6 max-w-4xl">
+    <div className="p-4 md:p-6 md:ml-64 space-y-6 max-w-4xl overflow-x-hidden">
       <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
         <Shield className="h-5 w-5" /> Admin Dashboard
       </h1>
@@ -3136,7 +3199,7 @@ function AdminView() {
             <p className="text-xs text-muted-foreground">Signups Last Month</p>
           </CardContent>
         </Card>
-        <Card className="border-border">
+        <Card className="border-border col-span-2 md:col-span-1">
           <CardContent className="p-4 text-center">
             <p className="text-2xl font-bold text-foreground">{stats.referralConversions}</p>
             <p className="text-xs text-muted-foreground">Referral Conversions</p>
@@ -3202,7 +3265,7 @@ function AdminView() {
 // ============================================================
 function LoadingSkeleton() {
   return (
-    <div className="p-4 md:p-6 md:ml-64 space-y-4 max-w-6xl">
+    <div className="p-4 md:p-6 md:ml-64 space-y-4 max-w-6xl overflow-x-hidden">
       <div className="h-8 w-48 bg-muted rounded-lg animate-pulse" />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[1, 2, 3, 4].map((i) => (

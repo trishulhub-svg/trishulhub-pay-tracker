@@ -59,8 +59,10 @@ export async function POST(request: NextRequest) {
       textContent: `Your TrishulHub password reset code is: ${code}. It expires in 10 minutes.`,
     });
 
-    if (!emailResult.success && process.env.NODE_ENV !== 'production') {
-      console.log(`[DEV] Password reset OTP for ${normalizedEmail}: ${code}`);
+    // OTP only sent via email - never returned in API response or shown on screen
+    if (!emailResult.success) {
+      await db.otpCode.deleteMany({ where: { email: normalizedEmail, code } });
+      console.error('Failed to send password reset email:', emailResult.error);
     }
 
     return NextResponse.json({ message: successMessage });
