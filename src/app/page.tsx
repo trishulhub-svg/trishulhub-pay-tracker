@@ -4391,7 +4391,7 @@ function AiSettingsView() {
         setTestResult({ success: false, message: 'Please enter an API key first' });
         return;
       }
-      const model = form.ZAI_MODEL || 'glm-4-flash';
+      const model = form.ZAI_MODEL || 'glm-4.5-flash';
       const res = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
         method: 'POST',
         headers: {
@@ -4433,7 +4433,7 @@ function AiSettingsView() {
             <p className="text-sm font-semibold text-purple-900 dark:text-purple-200">Z.AI API Configuration</p>
             <p className="text-xs text-purple-700 dark:text-purple-400 leading-relaxed">
               This API key powers the AI data import feature for premium users. It enables extracting shift and payment data from PDF and DOCX files.
-              Uses the Z.AI (BigModel/GLM) API — the free GLM-4-Flash model works great for this.
+              Uses the Z.AI API (BigModel/GLM) — the free GLM-4.5-Flash model works great for this.
             </p>
           </div>
         </div>
@@ -4454,9 +4454,9 @@ function AiSettingsView() {
             <Sparkles className="h-4 w-4" /> AI Credentials
           </CardTitle>
           <CardDescription className="text-xs">
-            Get your free API key from{' '}
-            <a href="https://open.bigmodel.cn" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
-              open.bigmodel.cn <ExternalLink className="h-3 w-3 inline" />
+            Get your API key from{' '}
+            <a href="https://z.ai/manage-apikey/apikey-list" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
+              z.ai/apikey <ExternalLink className="h-3 w-3 inline" />
             </a>
           </CardDescription>
         </CardHeader>
@@ -4497,15 +4497,18 @@ function AiSettingsView() {
               <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
               Model
             </Label>
-            <Select value={form.ZAI_MODEL || 'glm-4-flash'} onValueChange={(v) => setForm({ ...form, ZAI_MODEL: v })}>
+            <Select value={form.ZAI_MODEL || 'glm-4.5-flash'} onValueChange={(v) => setForm({ ...form, ZAI_MODEL: v })}>
               <SelectTrigger className="h-10">
                 <SelectValue placeholder="Select model" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="glm-4-flash">GLM-4-Flash (Free - Recommended)</SelectItem>
-                <SelectItem value="glm-4-flashx">GLM-4-FlashX (Free - Faster)</SelectItem>
-                <SelectItem value="glm-4-plus">GLM-4-Plus (Paid - More Accurate)</SelectItem>
-                <SelectItem value="glm-4">GLM-4 (Paid - Best Quality)</SelectItem>
+                <SelectItem value="glm-4.5-flash">GLM-4.5-Flash (Free - Recommended)</SelectItem>
+                <SelectItem value="glm-4.5-air">GLM-4.5-Air (Free - More Capable)</SelectItem>
+                <SelectItem value="glm-4.5">GLM-4.5 (Paid - Best Reasoning)</SelectItem>
+                <SelectItem value="glm-4.7-flash">GLM-4.7-Flash (Free - Fast)</SelectItem>
+                <SelectItem value="glm-4.7-flashx">GLM-4.7-FlashX (Free - Faster)</SelectItem>
+                <SelectItem value="glm-5">GLM-5 (Paid - Latest)</SelectItem>
+                <SelectItem value="glm-5.1">GLM-5.1 (Paid - Newest)</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-[10px] text-muted-foreground">Free models work great for data extraction</p>

@@ -303,7 +303,7 @@ async function extractWithAI(text: string, companies: any[], importType: string,
   // Get the ZAI API key from admin settings
   const settings = await getSettingsFromDB();
   const apiKey = settings.ZAI_API_KEY;
-  const model = settings.ZAI_MODEL || 'glm-4-flash';
+  const model = settings.ZAI_MODEL || 'glm-4.5-flash';
 
   if (!apiKey) {
     return {
