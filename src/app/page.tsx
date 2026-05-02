@@ -1,68 +1,76 @@
 'use client';
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  LayoutDashboard, FileText, LogOut, Menu, X,
-  Wallet, TrendingUp, Building2, AlertCircle, Plus, Pencil,
-  Trash2, Download, Moon, Sun,
-  ArrowUpRight, ArrowDownRight, CheckCircle2, HourglassIcon,
-  Mail, Loader2, Copy, Gift, Users, Settings,
-  Crown, Briefcase, Star, Shield
-} from 'lucide-react';
-import { useAppStore, SessionUser } from '@/lib/store';
-import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
+import { useTheme } from 'next-themes';
+import { useAppStore, SessionUser } from '@/lib/store';
+import { cn } from '@/lib/utils';
+import { useIsMobile } from '@/hooks/use-mobile';
+
+// UI Components
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Switch } from '@/components/ui/switch';
+
+// Icons
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import Image from 'next/image';
+  LayoutDashboard,
+  FileText,
+  Clock,
+  Briefcase,
+  Gift,
+  Shield,
+  Settings,
+  LogOut,
+  Sun,
+  Moon,
+  Menu,
+  Plus,
+  Edit3,
+  Trash2,
+  ChevronRight,
+  TrendingUp,
+  TrendingDown,
+  DollarSign,
+  Users,
+  Building2,
+  ClipboardList,
+  Star,
+  Copy,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  Info,
+  Upload,
+  Download,
+  Eye,
+  ArrowUpRight,
+  ArrowDownRight,
+  Calendar,
+  MapPin,
+  Timer,
+  Coffee,
+  X,
+} from 'lucide-react';
 
-// ===================== HELPERS =====================
-const MONTH_NAMES = [
-  '', 'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
+// ──────────────────────────────────────────────
+// Types
+// ──────────────────────────────────────────────
 
-function formatMonthYear(month: number, year: number): string {
-  return `${MONTH_NAMES[month]} ${year}`;
-}
-
-function formatCurrency(amount: number): string {
-  return `£${amount.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function formatHours(hours: number): string {
-  return `${hours.toFixed(1)} hrs`;
-}
-
-// ===================== API HELPERS =====================
-async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, options);
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || 'Something went wrong');
-  }
-  return data;
-}
-
-// ===================== COMPANY TYPE =====================
 interface Company {
   id: string;
   name: string;
@@ -89,502 +97,638 @@ interface PaymentRecord {
   company: { id: string; name: string };
 }
 
-// ===================== AUTH VIEW =====================
+interface Shift {
+  id: string;
+  userId: string;
+  companyId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  breakMinutes: number;
+  totalHours: number;
+  shiftType: string;
+  location: string | null;
+  notes: string | null;
+  company: { id: string; name: string };
+}
+
+// ──────────────────────────────────────────────
+// Constants & Helpers
+// ──────────────────────────────────────────────
+
+const MONTH_NAMES = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+function formatMonthYear(month: number, year: number): string {
+  return `${MONTH_NAMES[month]} ${year}`;
+}
+
+function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(amount);
+}
+
+function formatHours(hours: number): string {
+  return `${hours.toFixed(1)} hrs`;
+}
+
+async function apiFetch(url: string, options?: RequestInit) {
+  const res = await fetch(url, {
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    ...options,
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'Something went wrong');
+  }
+  return data;
+}
+
+// ──────────────────────────────────────────────
+// UK Terms & Conditions Content
+// ──────────────────────────────────────────────
+
+const TERMS_AND_CONDITIONS = `
+TRISHULHUB PAY TRACKER – TERMS AND CONDITIONS
+
+Last updated: March 2025
+
+These Terms and Conditions ("Terms") govern your use of the TrishulHub Pay Tracker application ("App") operated by TrishulHub ("we", "us", "our"). By creating an account and using the App, you agree to be bound by these Terms.
+
+1. DEFINITIONS
+"User" means any individual who registers an account on the App. "Content" means any data, files, or information uploaded or entered by the User. "Services" means the salary tracking, shift tracking, and related features provided by the App.
+
+2. ACCEPTANCE OF TERMS
+By ticking the acceptance checkbox and creating an account, you confirm that you have read, understood, and agree to be bound by these Terms. If you do not agree, you must not use the App.
+
+3. USER ACCOUNTS
+3.1 You must provide accurate and complete information when registering.
+3.2 You are responsible for maintaining the confidentiality of your login credentials.
+3.3 You must notify us immediately of any unauthorised use of your account.
+3.4 We reserve the right to suspend or terminate accounts that violate these Terms.
+
+4. DATA PROTECTION AND GDPR
+4.1 We are committed to protecting your personal data in accordance with the UK General Data Protection Regulation (UK GDPR) and the Data Protection Act 2018.
+4.2 We act as the data controller for the personal information you provide. Our lawful basis for processing is legitimate interest and contractual necessity.
+4.3 Personal data collected includes: name, email address, and payment tracking data you enter.
+4.4 You have the right to access, rectify, erase, restrict, or port your data. Requests should be sent to our contact email.
+4.5 We will not share your personal data with third parties except where required by law or to provide the Services.
+4.6 We implement appropriate technical and organisational measures to protect your data.
+4.7 Data is stored within the United Kingdom.
+
+5. USER RESPONSIBILITIES
+5.1 You are solely responsible for the accuracy of payment records, shift data, and other information you enter.
+5.2 You must not use the App for any unlawful purpose or in violation of any applicable regulations.
+5.3 You must not attempt to gain unauthorised access to other users' accounts or our systems.
+5.4 You must not upload malicious files, viruses, or content that infringes third-party rights.
+
+6. REFERRAL PROGRAMME
+6.1 The referral programme allows Users to share a unique referral code.
+6.2 When a new User signs up using your referral code, you (the referrer) will be upgraded to the Premium plan.
+6.3 The new User who signs up with a referral code does not receive Premium status automatically; they must refer others to unlock Premium.
+6.4 We reserve the right to modify or discontinue the referral programme at any time.
+
+7. PREMIUM AND FREE PLANS
+7.1 The Free plan allows tracking of one company. The Premium plan allows tracking of multiple companies.
+7.2 Premium status is granted through the referral programme.
+7.3 We reserve the right to modify plan features and pricing at any time with reasonable notice.
+
+8. INTELLECTUAL PROPERTY
+8.1 All intellectual property rights in the App, including software, design, logos, and trademarks, belong to TrishulHub.
+8.2 You retain ownership of the Content you upload. By using the App, you grant us a limited, non-exclusive licence to process and store your Content for the purpose of providing the Services.
+
+9. LIMITATION OF LIABILITY
+9.1 The App is provided "as is" and "as available" without warranties of any kind, whether express or implied.
+9.2 We do not guarantee that the App will be uninterrupted, error-free, or completely secure.
+9.3 To the maximum extent permitted by law, we shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of the App.
+9.4 Our total liability to you shall not exceed £100 (one hundred pounds sterling).
+9.5 We are not liable for any loss of data or financial decisions made based on information in the App. The App is a tracking tool only and does not constitute financial or tax advice.
+
+10. INDEMNITY
+You agree to indemnify and hold harmless TrishulHub from any claims, damages, losses, or expenses arising from your use of the App or violation of these Terms.
+
+11. TERMINATION
+11.1 You may delete your account at any time by contacting us.
+11.2 We may suspend or terminate your account if you breach these Terms.
+11.3 Upon termination, your right to use the App ceases immediately. We will delete your personal data in accordance with our retention policy.
+
+12. MODIFICATIONS TO TERMS
+We may update these Terms from time to time. We will notify you of material changes via email or in-app notification. Continued use of the App after changes constitutes acceptance of the revised Terms.
+
+13. GOVERNING LAW AND JURISDICTION
+13.1 These Terms are governed by and construed in accordance with the laws of England and Wales.
+13.2 Any disputes arising from these Terms shall be subject to the exclusive jurisdiction of the courts of England and Wales.
+
+14. CONTACT
+For questions about these Terms, please contact us at support@trishulhub.com.
+`;
+
+// ──────────────────────────────────────────────
+// Shift Type Config
+// ──────────────────────────────────────────────
+
+const SHIFT_TYPES = [
+  { value: 'REGULAR', label: 'Regular', color: 'bg-blue-500' },
+  { value: 'OVERTIME', label: 'Overtime', color: 'bg-amber-500' },
+  { value: 'HOLIDAY', label: 'Holiday', color: 'bg-green-500' },
+  { value: 'SICK', label: 'Sick Leave', color: 'bg-red-500' },
+] as const;
+
+// ──────────────────────────────────────────────
+// StatCard Component
+// ──────────────────────────────────────────────
+
+function StatCard({ title, value, icon: Icon, trend, trendLabel, color = 'text-primary' }: {
+  title: string;
+  value: string | number;
+  icon: React.ElementType;
+  trend?: 'up' | 'down' | null;
+  trendLabel?: string;
+  color?: string;
+}) {
+  return (
+    <Card className="relative overflow-hidden">
+      <CardContent className="p-4 sm:p-6">
+        <div className="flex items-center justify-between">
+          <div className="space-y-1 min-w-0">
+            <p className="text-xs sm:text-sm text-muted-foreground truncate">{title}</p>
+            <p className={cn("text-lg sm:text-2xl font-bold truncate", color)}>{value}</p>
+            {trend && trendLabel && (
+              <div className="flex items-center gap-1 text-xs">
+                {trend === 'up' ? (
+                  <ArrowUpRight className="h-3 w-3 text-green-500" />
+                ) : (
+                  <ArrowDownRight className="h-3 w-3 text-red-500" />
+                )}
+                <span className={trend === 'up' ? 'text-green-500' : 'text-red-500'}>{trendLabel}</span>
+              </div>
+            )}
+          </div>
+          <div className="rounded-full bg-primary/10 p-2 sm:p-3 shrink-0">
+            <Icon className={cn("h-4 w-4 sm:h-5 sm:w-5", color)} />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ──────────────────────────────────────────────
+// TermsDialog Component
+// ──────────────────────────────────────────────
+
+function TermsDialog() {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <button className="text-primary hover:underline text-sm font-medium">Read Terms</button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl max-h-[80vh]">
+        <DialogHeader>
+          <DialogTitle>Terms & Conditions</DialogTitle>
+          <DialogDescription>UK-standard terms governing your use of TrishulHub Pay Tracker</DialogDescription>
+        </DialogHeader>
+        <div className="overflow-y-auto max-h-[60vh] text-sm text-muted-foreground whitespace-pre-line custom-scrollbar pr-2">
+          {TERMS_AND_CONDITIONS}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Auth View
+// ──────────────────────────────────────────────
+
 function AuthView() {
-  const { setUser, setAuthView, authView } = useAppStore();
-  const [name, setName] = useState('');
+  const { authView, setAuthView, setUser, setIsLoading } = useAppStore();
   const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [referralCode, setReferralCode] = useState('');
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const isSignup = authView === 'signup';
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
-      toast.error('Please fill in all required fields');
-      return;
-    }
-    if (isSignup && !name) {
-      toast.error('Please enter your name');
+      toast.error('Please fill in all fields');
       return;
     }
     setLoading(true);
     try {
-      const endpoint = isSignup ? '/api/auth/signup' : '/api/auth/login';
-      const body = isSignup
-        ? { name, email, password, referralCode: referralCode || undefined }
-        : { email, password };
-      const data = await apiFetch<{ user: SessionUser; message: string }>(endpoint, {
+      const data = await apiFetch('/api/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      setUser(data.user);
+      toast.success('Welcome back!');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Login failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name || !email || !password) {
+      toast.error('Please fill in all fields');
+      return;
+    }
+    if (password.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+    if (!termsAccepted) {
+      toast.error('You must accept the Terms and Conditions');
+      return;
+    }
+    setLoading(true);
+    try {
+      const body: Record<string, unknown> = { name, email, password, termsAccepted: true };
+      if (referralCode.trim()) {
+        body.referralCode = referralCode.trim().toUpperCase();
+      }
+      const data = await apiFetch('/api/auth/signup', {
+        method: 'POST',
         body: JSON.stringify(body),
       });
       setUser(data.user);
-      toast.success(isSignup ? 'Account created! Welcome to TrishulHub!' : `Welcome back, ${data.user.name}!`);
+      toast.success('Account created! Refer a friend to unlock Premium!');
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Authentication failed');
+      toast.error(err instanceof Error ? err.message : 'Signup failed');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-green-50 dark:from-background dark:via-background dark:to-background p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-muted p-4">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
         className="w-full max-w-md"
       >
-        <Card className="shadow-xl border-0 dark:border">
-          <CardHeader className="text-center pb-2">
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ type: 'spring', delay: 0.2 }}
-              className="mx-auto mb-4"
-            >
-              <Image
-                src="/logo.png"
-                alt="TrishulHub"
-                width={64}
-                height={64}
-                className="mx-auto rounded-xl shadow-lg"
-              />
-            </motion.div>
-            <CardTitle className="text-2xl font-bold">
-              <span className="bg-gradient-to-r from-blue-600 to-green-600 bg-clip-text text-transparent">TrishulHub</span>
-              <span className="text-foreground"> Pay Tracker</span>
-            </CardTitle>
-            <CardDescription className="text-muted-foreground">
-              {isSignup ? 'Create your free account' : 'Sign in to your account'}
-            </CardDescription>
-            <Badge variant="secondary" className="mx-auto mt-1 bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">
-              Free forever
-            </Badge>
+        {/* Logo & Brand */}
+        <div className="text-center mb-8">
+          <div className="flex justify-center mb-4">
+            <div className="relative w-20 h-20 rounded-full overflow-hidden shadow-lg ring-4 ring-primary/20">
+              <Image src="/logo.png" alt="TrishulHub" fill className="object-cover" priority />
+            </div>
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-blue-600 to-green-600 bg-clip-text text-transparent">
+            TrishulHub Pay Tracker
+          </h1>
+          <p className="text-muted-foreground mt-2 text-sm">Track your salary payments from any company</p>
+        </div>
+
+        <Card className="shadow-xl border-0 bg-card/80 backdrop-blur-sm">
+          <CardHeader className="pb-4">
+            <Tabs value={authView} onValueChange={(v) => setAuthView(v as 'login' | 'signup')}>
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="login">Login</TabsTrigger>
+                <TabsTrigger value="signup">Sign Up</TabsTrigger>
+              </TabsList>
+            </Tabs>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {isSignup && (
-                <div className="space-y-2">
-                  <Label htmlFor="name">Full Name</Label>
-                  <div className="relative">
-                    <Users className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+            <AnimatePresence mode="wait">
+              {authView === 'login' ? (
+                <motion.form
+                  key="login"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  onSubmit={handleLogin}
+                  className="space-y-4"
+                >
+                  <div className="space-y-2">
+                    <Label htmlFor="login-email">Email</Label>
                     <Input
-                      id="name"
-                      type="text"
-                      placeholder="Your full name"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      className="pl-9"
+                      id="login-email"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
                       disabled={loading}
                     />
                   </div>
-                </div>
-              )}
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="pl-9"
-                    disabled={loading}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <div className="relative">
-                  <Shield className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder={isSignup ? 'At least 6 characters' : 'Enter your password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="pl-9"
-                    disabled={loading}
-                  />
-                </div>
-              </div>
-              {isSignup && (
-                <div className="space-y-2">
-                  <Label htmlFor="referralCode">Referral Code <span className="text-muted-foreground">(optional)</span></Label>
-                  <div className="relative">
-                    <Gift className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <div className="space-y-2">
+                    <Label htmlFor="login-password">Password</Label>
                     <Input
-                      id="referralCode"
+                      id="login-password"
+                      type="password"
+                      placeholder="••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      disabled={loading}
+                    />
+                  </div>
+                  <Button type="submit" className="w-full bg-gradient-to-r from-blue-600 to-green-600 hover:from-blue-700 hover:to-green-700 text-white" disabled={loading}>
+                    {loading ? 'Signing in...' : 'Sign In'}
+                  </Button>
+                </motion.form>
+              ) : (
+                <motion.form
+                  key="signup"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  onSubmit={handleSignup}
+                  className="space-y-4"
+                >
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-name">Full Name</Label>
+                    <Input
+                      id="signup-name"
+                      type="text"
+                      placeholder="John Doe"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      disabled={loading}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-email">Email</Label>
+                    <Input
+                      id="signup-email"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      disabled={loading}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-password">Password</Label>
+                    <Input
+                      id="signup-password"
+                      type="password"
+                      placeholder="Min 6 characters"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      disabled={loading}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-referral">Referral Code (optional)</Label>
+                    <Input
+                      id="signup-referral"
                       type="text"
                       placeholder="TRISHUL-XXXXXX"
                       value={referralCode}
-                      onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
-                      className="pl-9"
+                      onChange={(e) => setReferralCode(e.target.value)}
                       disabled={loading}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Entering a referral code helps track who referred you, but won&apos;t give you Premium directly.
+                    </p>
                   </div>
-                  <p className="text-xs text-muted-foreground">Use a referral code to help a friend unlock Premium!</p>
-                </div>
+                  <div className="flex items-start gap-2">
+                    <Checkbox
+                      id="terms"
+                      checked={termsAccepted}
+                      onCheckedChange={(checked) => setTermsAccepted(checked === true)}
+                      disabled={loading}
+                      className="mt-1"
+                    />
+                    <label htmlFor="terms" className="text-sm leading-snug text-muted-foreground cursor-pointer">
+                      I agree to the{' '}
+                      <TermsDialog />
+                      {' '}and Conditions
+                    </label>
+                  </div>
+                  <Button type="submit" className="w-full bg-gradient-to-r from-blue-600 to-green-600 hover:from-blue-700 hover:to-green-700 text-white" disabled={loading || !termsAccepted}>
+                    {loading ? 'Creating account...' : 'Create Account'}
+                  </Button>
+                  <p className="text-xs text-center text-muted-foreground">
+                    Free plan: Track 1 company. Refer a friend to unlock Premium!
+                  </p>
+                </motion.form>
               )}
-              <Button
-                type="submit"
-                className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-md"
-                disabled={loading}
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                {loading ? (isSignup ? 'Creating account...' : 'Signing in...') : (isSignup ? 'Create Account' : 'Sign In')}
-              </Button>
-              <div className="text-center">
-                <button
-                  type="button"
-                  onClick={() => setAuthView(isSignup ? 'login' : 'signup')}
-                  className="text-sm text-blue-600 hover:text-blue-700 hover:underline dark:text-blue-400"
-                >
-                  {isSignup ? 'Already have an account? Sign In' : "Don't have an account? Sign Up Free"}
-                </button>
-              </div>
-              <div className="mt-4 p-3 bg-muted/50 rounded-lg text-xs text-muted-foreground space-y-1">
-                <p className="font-medium">Demo Account:</p>
-                <p>demo@trishulhub.com / demo123</p>
-              </div>
-            </form>
+            </AnimatePresence>
           </CardContent>
         </Card>
-        <p className="text-center text-xs text-muted-foreground mt-4">
-          Track your salary payments from any company
-        </p>
       </motion.div>
     </div>
   );
 }
 
-// ===================== SIDEBAR =====================
+// ──────────────────────────────────────────────
+// Sidebar Navigation
+// ──────────────────────────────────────────────
+
+const NAV_ITEMS = [
+  { id: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'records' as const, label: 'Payment Records', icon: FileText },
+  { id: 'shifts' as const, label: 'Shifts', icon: Clock },
+  { id: 'companies' as const, label: 'Companies', icon: Briefcase },
+  { id: 'referrals' as const, label: 'Referrals', icon: Gift },
+];
+
+const ADMIN_NAV = { id: 'admin' as const, label: 'Admin', icon: Shield };
+const SETTINGS_NAV = { id: 'settings' as const, label: 'Settings', icon: Settings };
+
 function Sidebar() {
-  const { currentView, setCurrentView, user, sidebarOpen, setSidebarOpen, logout } = useAppStore();
-  const { theme, setTheme } = useTheme();
+  const { user, currentView, setCurrentView, sidebarOpen, setSidebarOpen } = useAppStore();
+  const isMobile = useIsMobile();
 
   const navItems = [
-    { key: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
-    { key: 'records' as const, label: 'Payment Records', icon: FileText },
-    { key: 'companies' as const, label: 'Companies', icon: Briefcase },
-    { key: 'referrals' as const, label: 'Referrals', icon: Gift },
-    { key: 'settings' as const, label: 'Settings', icon: Settings },
+    ...NAV_ITEMS,
+    ...(user?.role === 'ADMIN' ? [ADMIN_NAV] : []),
+    SETTINGS_NAV,
   ];
 
-  const handleLogout = async () => {
-    try {
-      await apiFetch('/api/auth/logout', { method: 'POST' });
-    } catch {
-      // ignore
-    }
-    logout();
-    toast.success('Logged out successfully');
-  };
+  const mobileNavItems = [
+    ...NAV_ITEMS,
+    ...(user?.role === 'ADMIN' ? [ADMIN_NAV] : []),
+  ];
 
-  const handleNav = (key: typeof navItems[number]['key']) => {
-    setCurrentView(key);
-    setSidebarOpen(false);
-  };
-
-  return (
-    <>
-      {/* Desktop Sidebar */}
-      <aside className="hidden md:flex md:flex-col md:w-64 bg-sidebar-background border-r border-sidebar-border h-screen sticky top-0">
-        <div className="p-4 flex items-center gap-3 border-b border-sidebar-border">
-          <Image src="/logo.png" alt="TrishulHub" width={40} height={40} className="rounded-xl shadow-md" />
-          <div>
-            <h1 className="font-bold text-lg">
-              <span className="bg-gradient-to-r from-blue-600 to-green-600 bg-clip-text text-transparent">TrishulHub</span>
-            </h1>
-            <p className="text-xs text-muted-foreground">Pay Tracker</p>
-          </div>
-        </div>
-
-        <nav className="flex-1 p-3 space-y-1">
-          {navItems.map((item) => (
-            <button
-              key={item.key}
-              onClick={() => handleNav(item.key)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-                currentView === item.key
-                  ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-md'
-                  : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
-              }`}
-            >
-              <item.icon className="h-5 w-5" />
-              {item.label}
-            </button>
-          ))}
-        </nav>
-
-        <div className="p-3 border-t border-sidebar-border">
-          <div className="flex items-center gap-3 px-3 py-2 mb-2">
-            <Avatar className="h-8 w-8">
-              <AvatarFallback className="bg-blue-100 text-blue-700 text-xs dark:bg-blue-900 dark:text-blue-300">
-                {user?.name?.charAt(0) || 'U'}
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{user?.name}</p>
-              <div className="flex items-center gap-1">
-                {user?.isPremium && (
-                  <Badge className="text-[10px] px-1 py-0 bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
-                    <Crown className="h-3 w-3 mr-0.5" /> Premium
-                  </Badge>
+  if (isMobile) {
+    return (
+      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t safe-area-bottom">
+        <div className="flex justify-around items-center h-16 px-1">
+          {mobileNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = currentView === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setCurrentView(item.id)}
+                className={cn(
+                  'flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded-lg transition-colors min-w-0 flex-1',
+                  isActive
+                    ? 'text-primary bg-primary/10'
+                    : 'text-muted-foreground hover:text-foreground'
                 )}
-                {!user?.isPremium && (
-                  <span className="text-xs text-muted-foreground">Free</span>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              className="flex-1"
-            >
-              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleLogout}
-              className="flex-1 text-destructive hover:text-destructive"
-            >
-              <LogOut className="h-4 w-4 mr-1" />
-              Logout
-            </Button>
-          </div>
-        </div>
-      </aside>
-
-      {/* Mobile Header */}
-      <header className="md:hidden fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md border-b">
-        <div className="flex items-center justify-between p-3">
-          <div className="flex items-center gap-2">
-            <Image src="/logo.png" alt="TrishulHub" width={32} height={32} className="rounded-lg" />
-            <h1 className="font-bold text-sm">
-              <span className="bg-gradient-to-r from-blue-600 to-green-600 bg-clip-text text-transparent">TrishulHub</span>
-            </h1>
-          </div>
-          <div className="flex items-center gap-1">
-            {user?.isPremium && (
-              <Badge className="text-[10px] px-1.5 py-0 bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
-                <Crown className="h-3 w-3 mr-0.5" /> Pro
-              </Badge>
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            >
-              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </Button>
-            <Button variant="ghost" size="icon" onClick={handleLogout}>
-              <LogOut className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(!sidebarOpen)}>
-              <Menu className="h-5 w-5" />
-            </Button>
-          </div>
-        </div>
-      </header>
-
-      {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md border-t safe-area-bottom">
-        <div className="flex items-center justify-around py-2 px-1">
-          {navItems.slice(0, 4).map((item) => (
-            <button
-              key={item.key}
-              onClick={() => handleNav(item.key)}
-              className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg text-[10px] font-medium transition-all ${
-                currentView === item.key
-                  ? 'text-blue-600 dark:text-blue-400'
-                  : 'text-muted-foreground'
-              }`}
-            >
-              <item.icon className="h-5 w-5" />
-              {item.label === 'Payment Records' ? 'Records' : item.label === 'Companies' ? 'Cos' : item.label}
-            </button>
-          ))}
-          <button
-            onClick={() => handleNav('settings')}
-            className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg text-[10px] font-medium transition-all ${
-              currentView === 'settings'
-                ? 'text-blue-600 dark:text-blue-400'
-                : 'text-muted-foreground'
-            }`}
-          >
-            <Settings className="h-5 w-5" />
-            Settings
-          </button>
+              >
+                <Icon className="h-5 w-5" />
+                <span className="text-[10px] truncate">{item.label}</span>
+              </button>
+            );
+          })}
         </div>
       </nav>
+    );
+  }
 
-      {/* Mobile Menu Overlay */}
-      <AnimatePresence>
-        {sidebarOpen && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 0.5 }}
-              exit={{ opacity: 0 }}
-              className="md:hidden fixed inset-0 bg-black z-50"
-              onClick={() => setSidebarOpen(false)}
-            />
-            <motion.div
-              initial={{ x: -280 }}
-              animate={{ x: 0 }}
-              exit={{ x: -280 }}
-              transition={{ type: 'spring', damping: 25 }}
-              className="md:hidden fixed left-0 top-0 bottom-0 w-72 bg-background z-50 shadow-xl"
-            >
-              <div className="flex items-center justify-between p-4 border-b">
-                <div className="flex items-center gap-2">
-                  <Image src="/logo.png" alt="TrishulHub" width={32} height={32} className="rounded-lg" />
-                  <span className="font-bold bg-gradient-to-r from-blue-600 to-green-600 bg-clip-text text-transparent">
-                    TrishulHub
-                  </span>
-                </div>
-                <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(false)}>
-                  <X className="h-5 w-5" />
-                </Button>
-              </div>
-              <div className="p-3 space-y-1">
-                {navItems.map((item) => (
-                  <button
-                    key={item.key}
-                    onClick={() => handleNav(item.key)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                      currentView === item.key
-                        ? 'bg-primary text-primary-foreground shadow-md'
-                        : 'text-foreground hover:bg-accent'
-                    }`}
-                  >
-                    <item.icon className="h-5 w-5" />
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-              <div className="absolute bottom-0 left-0 right-0 p-4 border-t">
-                <div className="flex items-center gap-3 mb-3">
-                  <Avatar className="h-8 w-8">
-                    <AvatarFallback className="bg-blue-100 text-blue-700 text-xs dark:bg-blue-900 dark:text-blue-300">
-                      {user?.name?.charAt(0) || 'U'}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <p className="text-sm font-medium">{user?.name}</p>
-                    <p className="text-xs text-muted-foreground">{user?.email}</p>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-    </>
-  );
-}
-
-// ===================== STAT CARD =====================
-function StatCard({
-  title, value, icon: Icon, gradient, trend, trendValue,
-}: {
-  title: string;
-  value: string;
-  icon: React.ElementType;
-  gradient: string;
-  trend?: 'up' | 'down' | null;
-  trendValue?: string;
-}) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      whileHover={{ y: -2, transition: { duration: 0.2 } }}
+    <aside
+      className={cn(
+        'fixed left-0 top-0 z-40 h-screen bg-card border-r transition-all duration-300 flex flex-col',
+        sidebarOpen ? 'w-64' : 'w-16'
+      )}
     >
-      <Card className="overflow-hidden border-0 shadow-md hover:shadow-lg transition-shadow">
-        <div className={`${gradient} p-4 text-white`}>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium opacity-90">{title}</p>
-              <p className="text-2xl font-bold mt-1">{value}</p>
-              {trend && trendValue && (
-                <div className="flex items-center gap-1 mt-1">
-                  {trend === 'up' ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-                  <span className="text-xs opacity-90">{trendValue}</span>
-                </div>
+      {/* Header */}
+      <div className="flex items-center gap-3 p-4 border-b">
+        <div className="relative w-9 h-9 rounded-full overflow-hidden shrink-0 ring-2 ring-primary/20">
+          <Image src="/logo.png" alt="TH" fill className="object-cover" />
+        </div>
+        {sidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="min-w-0"
+          >
+            <h2 className="font-bold text-sm bg-gradient-to-r from-blue-600 to-green-600 bg-clip-text text-transparent truncate">
+              TrishulHub
+            </h2>
+            <p className="text-[10px] text-muted-foreground truncate">Pay Tracker</p>
+          </motion.div>
+        )}
+        <button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="ml-auto p-1 rounded-md hover:bg-muted transition-colors shrink-0"
+        >
+          <Menu className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Nav Items */}
+      <nav className="flex-1 p-2 space-y-1 overflow-y-auto custom-scrollbar">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = currentView === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setCurrentView(item.id)}
+              className={cn(
+                'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-sm',
+                isActive
+                  ? 'bg-primary/10 text-primary font-medium'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               )}
-            </div>
-            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
-              <Icon className="h-6 w-6" />
-            </div>
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              {sidebarOpen && (
+                <motion.span
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="truncate"
+                >
+                  {item.label}
+                </motion.span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* User Info */}
+      {sidebarOpen && user && (
+        <div className="p-3 border-t">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Badge variant={user.isPremium ? 'default' : 'secondary'} className="text-[10px]">
+              {user.isPremium ? 'Premium' : 'Free'}
+            </Badge>
+            <span className="truncate">{user.name}</span>
           </div>
         </div>
-      </Card>
-    </motion.div>
+      )}
+    </aside>
   );
 }
 
-// ===================== DASHBOARD VIEW =====================
+// ──────────────────────────────────────────────
+// Dashboard View
+// ──────────────────────────────────────────────
+
 function DashboardView() {
   const { user, setCurrentView, setSelectedCompanyId } = useAppStore();
-  const [stats, setStats] = useState<Record<string, unknown> | null>(null);
-  const [recentRecords, setRecentRecords] = useState<PaymentRecord[]>([]);
-  const [comparison, setComparison] = useState<Record<string, unknown> | null>(null);
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [referralInfo, setReferralInfo] = useState<{ referralCode: string; referralCount: number; isPremium: boolean } | null>(null);
-  const [selectedCompany, setSelectedCompany] = useState<string>('all');
+  const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedCompanyFilter, setSelectedCompanyFilter] = useState<string>('');
 
   const fetchDashboard = useCallback(async () => {
+    setLoading(true);
     try {
-      const params = selectedCompany !== 'all' ? `?companyId=${selectedCompany}` : '';
-      const data = await apiFetch<Record<string, unknown>>(`/api/dashboard${params}`);
-      setStats(data.stats as Record<string, unknown>);
-      setRecentRecords(data.recentRecords as PaymentRecord[]);
-      if (data.comparison) setComparison(data.comparison as Record<string, unknown>);
-      if (data.companies) setCompanies(data.companies as Company[]);
-      if (data.referralInfo) setReferralInfo(data.referralInfo as { referralCode: string; referralCount: number; isPremium: boolean });
+      const url = selectedCompanyFilter
+        ? `/api/dashboard?companyId=${selectedCompanyFilter}`
+        : '/api/dashboard';
+      const result = await apiFetch(url);
+      setData(result);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to load dashboard');
     } finally {
       setLoading(false);
     }
-  }, [selectedCompany]);
+  }, [selectedCompanyFilter]);
 
   useEffect(() => {
     fetchDashboard();
   }, [fetchDashboard]);
 
-  if (loading) {
-    return <DashboardSkeleton />;
+  if (loading || !data) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-48" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-28" />
+          ))}
+        </div>
+      </div>
+    );
   }
 
-  const hasNoCompanies = companies.length === 0;
+  const stats = data.stats as {
+    totalRecords: number;
+    pendingCount: number;
+    paidCount: number;
+    totalExpected: number;
+    totalReceived: number;
+    totalHMRC: number;
+    totalDue: number;
+    workedHours: number;
+  };
+  const companies = (data.companies as Company[]) || [];
+  const companyStats = (data.companyStats as Array<{
+    id: string; name: string; recordCount: number;
+    totals: { totalExpected: number; totalReceived: number; totalHMRC: number; totalDue: number };
+    latestStatus: string | null;
+  }>) || [];
+  const recentRecords = (data.recentRecords as PaymentRecord[]) || [];
+  const comparison = data.comparison as { current: PaymentRecord | null; previous: PaymentRecord | null };
+  const referralInfo = data.referralInfo as { referralCode: string; referralCount: number; isPremium: boolean };
+  const shiftSummary = data.shiftSummary as { totalHours: number; totalShifts: number; totalBreakMinutes: number; month: number; year: number };
+
+  const currentMonth = new Date().getMonth() + 1;
+  const currentYear = new Date().getFullYear();
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold">
-            Welcome back, {user?.name}! 👋
-          </h2>
-          <p className="text-muted-foreground">Here&apos;s your payment overview</p>
+          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <p className="text-muted-foreground text-sm">
+            Welcome back, {user?.name?.split(' ')[0]}!
+          </p>
         </div>
-        {companies.length > 0 && (
-          <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-            <SelectTrigger className="w-48">
-              <Briefcase className="h-4 w-4 mr-2 text-muted-foreground" />
+        <div className="flex items-center gap-2">
+          <Select value={selectedCompanyFilter} onValueChange={setSelectedCompanyFilter}>
+            <SelectTrigger className="w-[180px]">
               <SelectValue placeholder="All Companies" />
             </SelectTrigger>
             <SelectContent>
@@ -594,304 +738,231 @@ function DashboardView() {
               ))}
             </SelectContent>
           </Select>
-        )}
+        </div>
       </div>
 
-      {/* No Companies Prompt */}
-      {hasNoCompanies && (
-        <Card className="border-2 border-dashed border-blue-300 dark:border-blue-700 shadow-md">
-          <CardContent className="p-8 text-center">
-            <Briefcase className="h-16 w-16 text-blue-400 mx-auto mb-4" />
-            <h3 className="text-xl font-bold mb-2">Add Your First Company</h3>
-            <p className="text-muted-foreground mb-4">Start tracking your salary payments by adding the company you work for.</p>
-            <Button
-              onClick={() => {
-                setSelectedCompanyId(null);
-                setCurrentView('add-company');
-              }}
-              className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-md"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Company
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Premium Upsell Banner */}
-      {!user?.isPremium && !hasNoCompanies && (
-        <Card className="border-2 border-amber-300 dark:border-amber-700 bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-950/30 dark:to-yellow-950/30">
-          <CardContent className="p-4 flex flex-col sm:flex-row items-center gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900 rounded-xl flex items-center justify-center">
-                <Crown className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-              </div>
-              <div>
-                <p className="font-bold text-sm">Want to track multiple companies?</p>
-                <p className="text-xs text-muted-foreground">Refer a friend to unlock Premium — unlimited companies!</p>
-              </div>
+      {/* Plan banner */}
+      {!user?.isPremium && (
+        <Card className="bg-gradient-to-r from-blue-600/10 to-green-600/10 border-primary/20">
+          <CardContent className="p-4 flex items-center gap-3">
+            <Star className="h-5 w-5 text-primary shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium">Refer a friend to unlock Premium!</p>
+              <p className="text-xs text-muted-foreground">Your code: <span className="font-mono font-bold text-primary">{referralInfo.referralCode}</span> — Track unlimited companies</p>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentView('referrals')}
-              className="border-amber-300 dark:border-amber-700 whitespace-nowrap"
-            >
-              <Gift className="h-4 w-4 mr-1" />
-              Get Premium
+            <Button size="sm" variant="outline" onClick={() => setCurrentView('referrals')} className="shrink-0">
+              Share
             </Button>
           </CardContent>
         </Card>
       )}
 
-      {/* Stat Cards */}
+      {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Total Expected"
-          value={formatCurrency(Number(stats?.totalExpected || 0))}
-          icon={Wallet}
-          gradient="bg-gradient-to-br from-blue-600 to-blue-700"
-        />
-        <StatCard
-          title="Total Received"
-          value={formatCurrency(Number(stats?.totalReceived || 0))}
-          icon={TrendingUp}
-          gradient="bg-gradient-to-br from-green-600 to-green-700"
-        />
-        <StatCard
-          title="Total HMRC"
-          value={formatCurrency(Number(stats?.totalHMRC || 0))}
-          icon={Building2}
-          gradient="bg-gradient-to-br from-rose-500 to-pink-600"
-        />
-        <StatCard
-          title="Total Due"
-          value={formatCurrency(Number(stats?.totalDue || 0))}
-          icon={AlertCircle}
-          gradient="bg-gradient-to-br from-amber-500 to-orange-600"
-        />
+        <StatCard title="Total Expected" value={formatCurrency(stats.totalExpected)} icon={DollarSign} color="text-blue-600 dark:text-blue-400" />
+        <StatCard title="Total Received" value={formatCurrency(stats.totalReceived)} icon={TrendingUp} color="text-green-600 dark:text-green-400" />
+        <StatCard title="Total Due" value={formatCurrency(stats.totalDue)} icon={AlertTriangle} color="text-amber-600 dark:text-amber-400" />
+        <StatCard title="HMRC Deductions" value={formatCurrency(stats.totalHMRC)} icon={Building2} color="text-red-600 dark:text-red-400" />
       </div>
 
-      {/* Monthly Comparison */}
-      {comparison && (
-        <Card className="shadow-md border-0 dark:border">
+      {/* Secondary Stats */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard title="Total Records" value={stats.totalRecords} icon={ClipboardList} />
+        <StatCard title="Pending" value={stats.pendingCount} icon={XCircle} color="text-amber-600 dark:text-amber-400" />
+        <StatCard title="Paid" value={stats.paidCount} icon={CheckCircle2} color="text-green-600 dark:text-green-400" />
+        <StatCard title="Worked Hours" value={formatHours(stats.workedHours)} icon={Clock} />
+      </div>
+
+      {/* Month Comparison & Shift Summary */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Monthly Comparison</CardTitle>
-            <CardDescription>Current month vs previous month</CardDescription>
+            <CardTitle className="text-base">Month Comparison</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">{formatMonthYear(currentMonth, currentYear)}</span>
+              {comparison.current ? (
+                <Badge variant={comparison.current.status === 'PAID' ? 'default' : 'secondary'}>
+                  {formatCurrency(comparison.current.totalReceived)} / {formatCurrency(comparison.current.totalExpected)}
+                </Badge>
+              ) : (
+                <span className="text-xs text-muted-foreground">No record</span>
+              )}
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">
+                {formatMonthYear(currentMonth === 1 ? 12 : currentMonth - 1, currentMonth === 1 ? currentYear - 1 : currentYear)}
+              </span>
+              {comparison.previous ? (
+                <Badge variant={comparison.previous.status === 'PAID' ? 'default' : 'secondary'}>
+                  {formatCurrency(comparison.previous.totalReceived)} / {formatCurrency(comparison.previous.totalExpected)}
+                </Badge>
+              ) : (
+                <span className="text-xs text-muted-foreground">No record</span>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Shift Summary ({formatMonthYear(shiftSummary.month, shiftSummary.year)})</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Total Shifts</span>
+              <span className="font-semibold">{shiftSummary.totalShifts}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Total Hours</span>
+              <span className="font-semibold">{formatHours(shiftSummary.totalHours)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Break Time</span>
+              <span className="font-semibold">{Math.round(shiftSummary.totalBreakMinutes)} min</span>
+            </div>
+            <Button size="sm" variant="outline" className="w-full mt-2" onClick={() => setCurrentView('shifts')}>
+              View All Shifts
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Company Stats */}
+      {companyStats.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Company Overview</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="text-center p-4 bg-muted/50 rounded-xl">
-                <p className="text-sm text-muted-foreground mb-1">
-                  {comparison.current
-                    ? formatMonthYear(
-                        Number((comparison.current as Record<string, unknown>)?.month),
-                        Number((comparison.current as Record<string, unknown>)?.year)
-                      )
-                    : 'Current Month'}
-                </p>
-                <p className="text-xl font-bold text-blue-600 dark:text-blue-400">
-                  {comparison.current
-                    ? formatCurrency(Number((comparison.current as Record<string, unknown>)?.totalReceived || 0))
-                    : '£0.00'}
-                </p>
-              </div>
-              <div className="text-center p-4 bg-muted/50 rounded-xl">
-                <p className="text-sm text-muted-foreground mb-1">
-                  {comparison.previous
-                    ? formatMonthYear(
-                        Number((comparison.previous as Record<string, unknown>)?.month),
-                        Number((comparison.previous as Record<string, unknown>)?.year)
-                      )
-                    : 'Previous Month'}
-                </p>
-                <p className="text-xl font-bold text-muted-foreground">
-                  {comparison.previous
-                    ? formatCurrency(Number((comparison.previous as Record<string, unknown>)?.totalReceived || 0))
-                    : '£0.00'}
-                </p>
-              </div>
+            <div className="space-y-3">
+              {companyStats.map((cs) => (
+                <div
+                  key={cs.id}
+                  className="flex items-center justify-between p-3 rounded-lg bg-muted/50 cursor-pointer hover:bg-muted transition-colors"
+                  onClick={() => {
+                    setSelectedCompanyId(cs.id);
+                    setCurrentView('records');
+                  }}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Building2 className="h-4 w-4 text-primary shrink-0" />
+                    <span className="font-medium text-sm truncate">{cs.name}</span>
+                    <Badge variant="outline" className="text-[10px] shrink-0">{cs.recordCount} records</Badge>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-sm text-muted-foreground">{formatCurrency(cs.totals.totalReceived)}</span>
+                    <Badge variant={cs.latestStatus === 'PAID' ? 'default' : 'secondary'} className="text-[10px]">
+                      {cs.latestStatus || 'N/A'}
+                    </Badge>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Quick Actions */}
-      <div className="flex flex-wrap gap-3">
-        <Button
-          onClick={() => setCurrentView('add-record')}
-          className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-md"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Add Payment Record
-        </Button>
-        <Button
-          variant="outline"
-          onClick={() => setCurrentView('companies')}
-          className="border-blue-200 dark:border-blue-800"
-        >
-          <Briefcase className="h-4 w-4 mr-2" />
-          Manage Companies
-        </Button>
-      </div>
-
       {/* Recent Records */}
-      <Card className="shadow-md border-0 dark:border">
-        <CardHeader>
-          <CardTitle className="text-lg">Recent Payment Records</CardTitle>
-          <CardDescription>Your recent payment records</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {recentRecords.length === 0 ? (
-            <div className="text-center py-8">
-              <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-              <p className="text-muted-foreground">No payment records found</p>
-              <Button
-                variant="outline"
-                className="mt-4"
-                onClick={() => setCurrentView('add-record')}
-              >
-                <Plus className="h-4 w-4 mr-2" /> Add Your First Record
+      {recentRecords.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Recent Records</CardTitle>
+              <Button size="sm" variant="ghost" onClick={() => setCurrentView('records')}>
+                View All <ChevronRight className="h-3 w-3 ml-1" />
               </Button>
             </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Company</TableHead>
-                    <TableHead>Month</TableHead>
-                    <TableHead>Expected</TableHead>
-                    <TableHead>Received</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {recentRecords.map((record) => (
-                    <TableRow key={record.id} className="hover:bg-muted/50 transition-colors">
-                      <TableCell className="font-medium">
-                        <div className="flex items-center gap-2">
-                          <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-                          {record.company?.name || 'N/A'}
-                        </div>
-                      </TableCell>
-                      <TableCell>{formatMonthYear(record.month, record.year)}</TableCell>
-                      <TableCell>{formatCurrency(record.totalExpected)}</TableCell>
-                      <TableCell>{formatCurrency(record.totalReceived)}</TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={record.status === 'PAID' ? 'default' : 'secondary'}
-                          className={
-                            record.status === 'PAID'
-                              ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                              : 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'
-                          }
-                        >
-                          {record.status === 'PAID' ? (
-                            <CheckCircle2 className="h-3 w-3 mr-1" />
-                          ) : (
-                            <HourglassIcon className="h-3 w-3 mr-1" />
-                          )}
-                          {record.status}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {recentRecords.slice(0, 5).map((record) => (
+                <div key={record.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50 transition-colors">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{record.company.name}</p>
+                    <p className="text-xs text-muted-foreground">{formatMonthYear(record.month, record.year)}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-sm font-medium">{formatCurrency(record.totalReceived)}</span>
+                    <Badge variant={record.status === 'PAID' ? 'default' : 'secondary'} className="text-[10px]">
+                      {record.status}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
 
-function DashboardSkeleton() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <Skeleton className="h-8 w-48 mb-2" />
-        <Skeleton className="h-4 w-64" />
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[...Array(4)].map((_, i) => (
-          <Skeleton key={i} className="h-28 rounded-xl" />
-        ))}
-      </div>
-      <Skeleton className="h-64 rounded-xl" />
-    </div>
-  );
-}
+// ──────────────────────────────────────────────
+// Payment Records View
+// ──────────────────────────────────────────────
 
-// ===================== PAYMENT RECORDS VIEW =====================
 function PaymentRecordsView() {
   const { setCurrentView, setSelectedRecordId } = useAppStore();
   const [records, setRecords] = useState<PaymentRecord[]>([]);
   const [totals, setTotals] = useState<Record<string, number>>({});
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filterCompanyId, setFilterCompanyId] = useState<string>('all');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [filterYear, setFilterYear] = useState<string>('all');
+  const [filterCompany, setFilterCompany] = useState<string>('');
+  const [filterStatus, setFilterStatus] = useState<string>('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const fetchRecords = useCallback(async () => {
     try {
       const params = new URLSearchParams();
-      if (filterCompanyId !== 'all') params.set('companyId', filterCompanyId);
-      if (filterStatus !== 'all') params.set('status', filterStatus);
-      if (filterYear !== 'all') params.set('year', filterYear);
-
-      const data = await apiFetch<Record<string, unknown>>(`/api/payment-records?${params.toString()}`);
-      setRecords(data.records as PaymentRecord[]);
-      setTotals(data.totals as Record<string, number>);
+      if (filterCompany) params.set('companyId', filterCompany);
+      if (filterStatus) params.set('status', filterStatus);
+      const data = await apiFetch(`/api/payment-records?${params.toString()}`);
+      setRecords(data.records || []);
+      setTotals(data.totals || {});
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to load records');
     } finally {
       setLoading(false);
     }
-  }, [filterCompanyId, filterStatus, filterYear]);
+  }, [filterCompany, filterStatus]);
 
   const fetchCompanies = useCallback(async () => {
     try {
-      const data = await apiFetch<{ companies: Company[] }>('/api/companies');
-      setCompanies(data.companies);
+      const data = await apiFetch('/api/companies');
+      setCompanies(data.companies || []);
     } catch {
-      // silent
+      // silently fail
     }
   }, []);
 
   useEffect(() => {
-    fetchRecords();
     fetchCompanies();
-  }, [fetchRecords, fetchCompanies]);
+  }, [fetchCompanies]);
 
-  const handleEdit = (id: string) => {
-    setSelectedRecordId(id);
-    setCurrentView('edit-record');
-  };
+  useEffect(() => {
+    fetchRecords();
+  }, [fetchRecords]);
 
-  const handleDelete = async () => {
-    if (!deleteId) return;
+  const handleDelete = async (id: string) => {
     try {
-      await apiFetch(`/api/payment-records/${deleteId}`, { method: 'DELETE' });
-      toast.success('Payment record deleted');
-      setDeleteId(null);
+      await apiFetch(`/api/payment-records/${id}`, { method: 'DELETE' });
+      toast.success('Record deleted');
       fetchRecords();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete');
     }
+    setDeleteId(null);
   };
-
-  const years = [...new Set(records.map((r) => r.year))].sort((a, b) => b - a);
 
   if (loading) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-8 w-48" />
-        {[...Array(5)].map((_, i) => (
-          <Skeleton key={i} className="h-12 w-full" />
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-16" />
         ))}
       </div>
     );
@@ -901,617 +972,236 @@ function PaymentRecordsView() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold">Payment Records</h2>
-          <p className="text-muted-foreground">View and manage all your payment records</p>
+          <h1 className="text-2xl font-bold">Payment Records</h1>
+          <p className="text-muted-foreground text-sm">{records.length} records</p>
         </div>
-        <Button
-          onClick={() => setCurrentView('add-record')}
-          className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-md"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Add Record
+        <Button onClick={() => setCurrentView('add-record')} className="bg-gradient-to-r from-blue-600 to-green-600 text-white">
+          <Plus className="h-4 w-4 mr-2" /> Add Record
         </Button>
       </div>
 
       {/* Filters */}
-      <Card className="shadow-sm border-0 dark:border">
-        <CardContent className="p-4">
-          <div className="flex flex-wrap gap-3 items-end">
-            <div className="space-y-1">
-              <Label className="text-xs">Company</Label>
-              <Select value={filterCompanyId} onValueChange={setFilterCompanyId}>
-                <SelectTrigger className="w-48">
-                  <SelectValue placeholder="All Companies" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Companies</SelectItem>
-                  {companies.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Status</Label>
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger className="w-32">
-                  <SelectValue placeholder="All" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  <SelectItem value="PAID">Paid</SelectItem>
-                  <SelectItem value="PENDING">Pending</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Year</Label>
-              <Select value={filterYear} onValueChange={setFilterYear}>
-                <SelectTrigger className="w-28">
-                  <SelectValue placeholder="All" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  {years.map((y) => (
-                    <SelectItem key={y} value={String(y)}>{y}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setFilterCompanyId('all');
-                setFilterStatus('all');
-                setFilterYear('all');
-              }}
-            >
-              Clear Filters
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="flex flex-wrap gap-2">
+        <Select value={filterCompany} onValueChange={setFilterCompany}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="All Companies" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Companies</SelectItem>
+            {companies.map((c) => (
+              <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={filterStatus} onValueChange={setFilterStatus}>
+          <SelectTrigger className="w-[140px]">
+            <SelectValue placeholder="All Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="PENDING">Pending</SelectItem>
+            <SelectItem value="PAID">Paid</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
 
-      {/* Records Table */}
-      <Card className="shadow-md border-0 dark:border">
-        <CardContent className="p-0">
-          {records.length === 0 ? (
-            <div className="text-center py-12">
-              <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-              <p className="text-lg font-medium text-muted-foreground">No payment records found</p>
-              <p className="text-sm text-muted-foreground">Try adjusting your filters or add a new record</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Company</TableHead>
-                    <TableHead>Month</TableHead>
-                    <TableHead className="text-right">Expected</TableHead>
-                    <TableHead className="text-right">Received</TableHead>
-                    <TableHead className="text-right">HMRC</TableHead>
-                    <TableHead className="text-right">Due</TableHead>
-                    <TableHead className="text-right">Hours</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Pay Slip</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {records.map((record) => (
-                    <TableRow key={record.id} className="hover:bg-muted/50 transition-colors">
-                      <TableCell className="font-medium">
-                        <div className="flex items-center gap-1.5">
-                          <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-                          {record.company?.name || 'N/A'}
-                        </div>
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap">
-                        {formatMonthYear(record.month, record.year)}
-                      </TableCell>
-                      <TableCell className="text-right">{formatCurrency(record.totalExpected)}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(record.totalReceived)}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(record.totalHMRC)}</TableCell>
-                      <TableCell className="text-right font-semibold">
-                        <span className={record.totalDue > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}>
-                          {formatCurrency(record.totalDue)}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right">{formatHours(record.workedHours)}</TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={record.status === 'PAID' ? 'default' : 'secondary'}
-                          className={
-                            record.status === 'PAID'
-                              ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                              : 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'
-                          }
-                        >
-                          {record.status === 'PAID' ? <CheckCircle2 className="h-3 w-3 mr-1" /> : <HourglassIcon className="h-3 w-3 mr-1" />}
-                          {record.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {record.paySlipUrl ? (
-                          <a
-                            href={record.paySlipUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 dark:text-blue-400 text-sm"
-                          >
-                            <Download className="h-3.5 w-3.5" />
-                            {record.paySlipName || 'View'}
-                          </a>
-                        ) : (
-                          <span className="text-muted-foreground text-sm">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => handleEdit(record.id)}>
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() => setDeleteId(record.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Grand Totals */}
+      {/* Totals Bar */}
       {records.length > 0 && (
-        <Card className="shadow-md border-0 dark:border">
-          <CardContent className="p-4">
-            <h3 className="font-bold mb-3">Grand Totals</h3>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-              <div className="text-center p-3 bg-muted/50 rounded-lg">
-                <p className="text-xs text-muted-foreground">Expected</p>
-                <p className="font-bold text-blue-600 dark:text-blue-400">{formatCurrency(totals.totalExpected || 0)}</p>
-              </div>
-              <div className="text-center p-3 bg-muted/50 rounded-lg">
-                <p className="text-xs text-muted-foreground">Received</p>
-                <p className="font-bold text-green-600 dark:text-green-400">{formatCurrency(totals.totalReceived || 0)}</p>
-              </div>
-              <div className="text-center p-3 bg-muted/50 rounded-lg">
-                <p className="text-xs text-muted-foreground">HMRC</p>
-                <p className="font-bold text-rose-600 dark:text-rose-400">{formatCurrency(totals.totalHMRC || 0)}</p>
-              </div>
-              <div className="text-center p-3 bg-muted/50 rounded-lg">
-                <p className="text-xs text-muted-foreground">Due</p>
-                <p className="font-bold text-amber-600 dark:text-amber-400">{formatCurrency(totals.totalDue || 0)}</p>
-              </div>
-              <div className="text-center p-3 bg-muted/50 rounded-lg">
-                <p className="text-xs text-muted-foreground">Hours</p>
-                <p className="font-bold">{formatHours(totals.workedHours || 0)}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Delete Confirmation */}
-      <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Payment Record</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this payment record? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  );
-}
-
-// ===================== COMPANIES VIEW =====================
-function CompaniesView() {
-  const { user, setCurrentView } = useAppStore();
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [companyStats, setCompanyStats] = useState<Record<string, unknown>>({});
-  const [loading, setLoading] = useState(true);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [newCompanyName, setNewCompanyName] = useState('');
-  const [creatingCompany, setCreatingCompany] = useState(false);
-  const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [editId, setEditId] = useState<string | null>(null);
-  const [editName, setEditName] = useState('');
-
-  const fetchCompanies = useCallback(async () => {
-    try {
-      const data = await apiFetch<{ companies: Company[] }>('/api/companies');
-      setCompanies(data.companies);
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to load companies');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const fetchDashboard = useCallback(async () => {
-    try {
-      const data = await apiFetch<Record<string, unknown>>('/api/dashboard');
-      if (data.companyStats) setCompanyStats(data.companyStats as Record<string, unknown>);
-    } catch {
-      // silent
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchCompanies();
-    fetchDashboard();
-  }, [fetchCompanies, fetchDashboard]);
-
-  const handleCreateCompany = async () => {
-    if (!newCompanyName.trim()) {
-      toast.error('Please enter a company name');
-      return;
-    }
-    setCreatingCompany(true);
-    try {
-      await apiFetch('/api/companies', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newCompanyName.trim() }),
-      });
-      toast.success('Company added successfully!');
-      setNewCompanyName('');
-      setShowAddForm(false);
-      fetchCompanies();
-      fetchDashboard();
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create company');
-    } finally {
-      setCreatingCompany(false);
-    }
-  };
-
-  const handleDeleteCompany = async () => {
-    if (!deleteId) return;
-    try {
-      await apiFetch(`/api/companies/${deleteId}`, { method: 'DELETE' });
-      toast.success('Company deleted successfully');
-      setDeleteId(null);
-      fetchCompanies();
-      fetchDashboard();
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete company');
-    }
-  };
-
-  const handleUpdateCompany = async () => {
-    if (!editId || !editName.trim()) return;
-    try {
-      await apiFetch(`/api/companies/${editId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: editName.trim() }),
-      });
-      toast.success('Company updated successfully');
-      setEditId(null);
-      setEditName('');
-      fetchCompanies();
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to update company');
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {[...Array(2)].map((_, i) => (
-            <Skeleton key={i} className="h-40 rounded-xl" />
-          ))}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="rounded-lg bg-muted/50 p-3 text-center">
+            <p className="text-xs text-muted-foreground">Expected</p>
+            <p className="text-sm font-bold text-blue-600 dark:text-blue-400">{formatCurrency(totals.totalExpected || 0)}</p>
+          </div>
+          <div className="rounded-lg bg-muted/50 p-3 text-center">
+            <p className="text-xs text-muted-foreground">Received</p>
+            <p className="text-sm font-bold text-green-600 dark:text-green-400">{formatCurrency(totals.totalReceived || 0)}</p>
+          </div>
+          <div className="rounded-lg bg-muted/50 p-3 text-center">
+            <p className="text-xs text-muted-foreground">Due</p>
+            <p className="text-sm font-bold text-amber-600 dark:text-amber-400">{formatCurrency(totals.totalDue || 0)}</p>
+          </div>
+          <div className="rounded-lg bg-muted/50 p-3 text-center">
+            <p className="text-xs text-muted-foreground">HMRC</p>
+            <p className="text-sm font-bold text-red-600 dark:text-red-400">{formatCurrency(totals.totalHMRC || 0)}</p>
+          </div>
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold">Companies</h2>
-          <p className="text-muted-foreground">Manage the companies you track payments for</p>
-        </div>
-        <Button
-          onClick={() => setShowAddForm(true)}
-          className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-md"
-          disabled={!user?.isPremium && companies.length >= 1}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Add Company
-        </Button>
-      </div>
-
-      {/* Premium Upsell */}
-      {!user?.isPremium && companies.length >= 1 && (
-        <Card className="border-2 border-amber-300 dark:border-amber-700 bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-950/30 dark:to-yellow-950/30">
-          <CardContent className="p-4 flex flex-col sm:flex-row items-center gap-4">
-            <Crown className="h-8 w-8 text-amber-600 dark:text-amber-400" />
-            <div className="flex-1">
-              <p className="font-bold">You&apos;re on the Free plan</p>
-              <p className="text-sm text-muted-foreground">Free accounts can track 1 company. Refer a friend to unlock unlimited companies!</p>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentView('referrals')}
-              className="border-amber-300 dark:border-amber-700"
-            >
-              <Gift className="h-4 w-4 mr-1" /> Unlock Premium
-            </Button>
-          </CardContent>
-        </Card>
       )}
 
-      {/* Add Company Form */}
-      {showAddForm && (
-        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-          <Card className="border-2 border-blue-200 dark:border-blue-800">
-            <CardContent className="p-4">
-              <div className="flex flex-col sm:flex-row gap-3">
-                <Input
-                  placeholder="Enter company name (e.g., Amazon, Green Care)"
-                  value={newCompanyName}
-                  onChange={(e) => setNewCompanyName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleCreateCompany()}
-                  className="flex-1"
-                />
-                <div className="flex gap-2">
-                  <Button
-                    onClick={handleCreateCompany}
-                    disabled={creatingCompany}
-                    className="bg-gradient-to-r from-blue-600 to-blue-700 text-white"
-                  >
-                    {creatingCompany ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
-                    Add
-                  </Button>
-                  <Button variant="outline" onClick={() => { setShowAddForm(false); setNewCompanyName(''); }}>
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
-
-      {/* Edit Company Form */}
-      {editId && (
-        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-          <Card className="border-2 border-blue-200 dark:border-blue-800">
-            <CardContent className="p-4">
-              <div className="flex flex-col sm:flex-row gap-3">
-                <Input
-                  placeholder="Company name"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleUpdateCompany()}
-                  className="flex-1"
-                />
-                <div className="flex gap-2">
-                  <Button onClick={handleUpdateCompany} className="bg-gradient-to-r from-blue-600 to-blue-700 text-white">
-                    Save
-                  </Button>
-                  <Button variant="outline" onClick={() => { setEditId(null); setEditName(''); }}>
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
-
-      {/* Companies Grid */}
-      {companies.length === 0 ? (
-        <Card className="border-2 border-dashed border-blue-300 dark:border-blue-700">
+      {/* Records List */}
+      {records.length === 0 ? (
+        <Card>
           <CardContent className="p-8 text-center">
-            <Briefcase className="h-16 w-16 text-blue-400 mx-auto mb-4" />
-            <h3 className="text-xl font-bold mb-2">No Companies Yet</h3>
-            <p className="text-muted-foreground mb-4">Add your first company to start tracking payments.</p>
-            <Button
-              onClick={() => setShowAddForm(true)}
-              className="bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-md"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Your First Company
+            <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+            <h3 className="font-medium">No payment records yet</h3>
+            <p className="text-sm text-muted-foreground mb-4">Add your first payment record to start tracking</p>
+            <Button onClick={() => setCurrentView('add-record')} className="bg-gradient-to-r from-blue-600 to-green-600 text-white">
+              <Plus className="h-4 w-4 mr-2" /> Add Record
             </Button>
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {companies.map((company) => {
-            const stats = Array.isArray(companyStats)
-              ? (companyStats as Record<string, unknown>[]).find((s) => s.id === company.id)
-              : null;
-            return (
-              <motion.div key={company.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} whileHover={{ y: -2 }}>
-                <Card className="shadow-md border-0 dark:border h-full">
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-700 rounded-xl flex items-center justify-center shadow-md text-white">
-                          <Building2 className="h-5 w-5" />
-                        </div>
-                        <div>
-                          <h3 className="font-bold">{company.name}</h3>
-                          <p className="text-xs text-muted-foreground">
-                            {company._count?.paymentRecords || 0} records
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => { setEditId(company.id); setEditName(company.name); }}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive hover:text-destructive"
-                          onClick={() => setDeleteId(company.id)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
+        <div className="space-y-2 max-h-[calc(100vh-400px)] overflow-y-auto custom-scrollbar">
+          {records.map((record) => (
+            <Card key={record.id} className="hover:shadow-md transition-shadow">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-medium text-sm">{record.company.name}</h3>
+                      <Badge variant={record.status === 'PAID' ? 'default' : 'secondary'} className="text-[10px]">
+                        {record.status}
+                      </Badge>
                     </div>
-                    {stats && !!(stats as Record<string, unknown>).totals && (
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div className="bg-muted/50 rounded p-2">
-                          <span className="text-muted-foreground">Received</span>
-                          <p className="font-bold text-green-600 dark:text-green-400">
-                            {formatCurrency(Number(((stats as Record<string, unknown>).totals as Record<string, number>)?.totalReceived || 0))}
-                          </p>
-                        </div>
-                        <div className="bg-muted/50 rounded p-2">
-                          <span className="text-muted-foreground">Due</span>
-                          <p className="font-bold text-amber-600 dark:text-amber-400">
-                            {formatCurrency(Number(((stats as Record<string, unknown>).totals as Record<string, number>)?.totalDue || 0))}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                    {!!(stats as Record<string, unknown>)?.latestStatus && (
-                      <div className="mt-2">
-                        <Badge
-                          variant={(stats as Record<string, unknown>).latestStatus === 'PAID' ? 'default' : 'secondary'}
-                          className={
-                            (stats as Record<string, unknown>).latestStatus === 'PAID'
-                              ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 text-xs'
-                              : 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300 text-xs'
-                          }
-                        >
-                          Latest: {String((stats as Record<string, unknown>).latestStatus)}
-                        </Badge>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </motion.div>
-            );
-          })}
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {formatMonthYear(record.month, record.year)}
+                      {record.workedHours > 0 && ` • ${formatHours(record.workedHours)}`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="text-right">
+                      <p className="text-sm font-semibold">{formatCurrency(record.totalReceived)}</p>
+                      <p className="text-xs text-muted-foreground">of {formatCurrency(record.totalExpected)}</p>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        onClick={() => {
+                          setSelectedRecordId(record.id);
+                          setCurrentView('edit-record');
+                        }}
+                      >
+                        <Edit3 className="h-3.5 w-3.5" />
+                      </Button>
+                      <AlertDialog open={deleteId === record.id} onOpenChange={(open) => !open && setDeleteId(null)}>
+                        <AlertDialogTrigger asChild>
+                          <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => setDeleteId(record.id)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete Record?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This will permanently delete the payment record for {record.company.name} ({formatMonthYear(record.month, record.year)}).
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => handleDelete(record.id)} className="bg-destructive text-destructive-foreground">
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       )}
-
-      {/* Delete Confirmation */}
-      <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Company</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this company? All associated payment records will also be deleted. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteCompany} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
 
-// ===================== ADD/EDIT RECORD FORM =====================
-function RecordFormView() {
+// ──────────────────────────────────────────────
+// Add/Edit Payment Record Form
+// ──────────────────────────────────────────────
+
+function PaymentRecordForm({ editMode }: { editMode: boolean }) {
   const { user, selectedRecordId, setCurrentView } = useAppStore();
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [existingRecord, setExistingRecord] = useState<PaymentRecord | null>(null);
+  const [shiftHoursInfo, setShiftHoursInfo] = useState<{ totalHours: number; totalShifts: number } | null>(null);
+
   const [companyId, setCompanyId] = useState('');
-  const [month, setMonth] = useState(new Date().getMonth() + 1);
-  const [year, setYear] = useState(new Date().getFullYear());
+  const [month, setMonth] = useState<string>('');
+  const [year, setYear] = useState<string>(new Date().getFullYear().toString());
   const [totalExpected, setTotalExpected] = useState('');
   const [totalReceived, setTotalReceived] = useState('');
   const [totalHMRC, setTotalHMRC] = useState('');
   const [workedHours, setWorkedHours] = useState('');
   const [notes, setNotes] = useState('');
   const [status, setStatus] = useState('PENDING');
-  const [loading, setLoading] = useState(false);
-  const [initialLoading, setInitialLoading] = useState(!!selectedRecordId);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const isEditing = !!selectedRecordId;
-
-  const fetchCompanies = useCallback(async () => {
-    try {
-      const data = await apiFetch<{ companies: Company[] }>('/api/companies');
-      setCompanies(data.companies);
-      if (!isEditing && data.companies.length > 0 && !companyId) {
-        setCompanyId(data.companies[0].id);
-      }
-    } catch {
-      // silent
-    }
-  }, [isEditing, companyId]);
-
-  const fetchRecord = useCallback(async () => {
-    if (!selectedRecordId) return;
-    try {
-      const data = await apiFetch<{ records: PaymentRecord[] }>('/api/payment-records');
-      const record = (data.records as PaymentRecord[]).find((r) => r.id === selectedRecordId);
-      if (record) {
-        setCompanyId(record.companyId);
-        setMonth(record.month);
-        setYear(record.year);
-        setTotalExpected(String(record.totalExpected));
-        setTotalReceived(String(record.totalReceived));
-        setTotalHMRC(String(record.totalHMRC));
-        setWorkedHours(String(record.workedHours));
-        setNotes(record.notes || '');
-        setStatus(record.status);
-      }
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to load record');
-    } finally {
-      setInitialLoading(false);
-    }
-  }, [selectedRecordId]);
-
+  // Fetch companies
   useEffect(() => {
-    fetchCompanies();
-    if (isEditing) fetchRecord();
-  }, [fetchCompanies, fetchRecord, isEditing]);
+    (async () => {
+      try {
+        const data = await apiFetch('/api/companies');
+        setCompanies(data.companies || []);
+        if (!editMode && data.companies?.length === 1) {
+          setCompanyId(data.companies[0].id);
+        }
+      } catch {
+        // silently fail
+      }
+    })();
+  }, [editMode]);
+
+  // Fetch existing record for edit mode
+  useEffect(() => {
+    if (editMode && selectedRecordId) {
+      (async () => {
+        try {
+          const data = await apiFetch('/api/payment-records');
+          const record = (data.records as PaymentRecord[])?.find((r) => r.id === selectedRecordId);
+          if (record) {
+            setExistingRecord(record);
+            setCompanyId(record.companyId);
+            setMonth(record.month.toString());
+            setYear(record.year.toString());
+            setTotalExpected(record.totalExpected.toString());
+            setTotalReceived(record.totalReceived.toString());
+            setTotalHMRC(record.totalHMRC.toString());
+            setWorkedHours(record.workedHours.toString());
+            setNotes(record.notes || '');
+            setStatus(record.status);
+          }
+        } catch {
+          // silently fail
+        }
+      })();
+    }
+  }, [editMode, selectedRecordId]);
+
+  // Auto-populate shift hours when company/month/year selected
+  useEffect(() => {
+    if (companyId && month && year && !editMode) {
+      (async () => {
+        try {
+          const data = await apiFetch(`/api/shifts/hours?companyId=${companyId}&month=${month}&year=${year}`);
+          if (data.totalHours > 0) {
+            setShiftHoursInfo({ totalHours: data.totalHours, totalShifts: data.totalShifts });
+            setWorkedHours(data.totalHours.toString());
+          } else {
+            setShiftHoursInfo(null);
+          }
+        } catch {
+          setShiftHoursInfo(null);
+        }
+      })();
+    } else {
+      setShiftHoursInfo(null);
+    }
+  }, [companyId, month, year, editMode]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!companyId) {
-      toast.error('Please select a company');
+    if (!companyId || !month || !year) {
+      toast.error('Please select company, month, and year');
       return;
     }
     setLoading(true);
     try {
       const body = {
         companyId,
-        month,
-        year,
+        month: parseInt(month),
+        year: parseInt(year),
         totalExpected: parseFloat(totalExpected) || 0,
         totalReceived: parseFloat(totalReceived) || 0,
         totalHMRC: parseFloat(totalHMRC) || 0,
@@ -1520,20 +1210,18 @@ function RecordFormView() {
         status,
       };
 
-      if (isEditing) {
+      if (editMode && selectedRecordId) {
         await apiFetch(`/api/payment-records/${selectedRecordId}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        toast.success('Payment record updated');
+        toast.success('Record updated');
       } else {
         await apiFetch('/api/payment-records', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        toast.success('Payment record created');
+        toast.success('Record created');
       }
       setCurrentView('records');
     } catch (err: unknown) {
@@ -1543,520 +1231,1415 @@ function RecordFormView() {
     }
   };
 
-  const handlePaySlipUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !selectedRecordId) return;
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('recordId', selectedRecordId);
-    try {
-      await apiFetch('/api/upload-payslip', { method: 'POST', body: formData });
-      toast.success('Pay slip uploaded');
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Upload failed');
-    }
-  };
-
-  const totalDue = Math.max(0, (parseFloat(totalExpected) || 0) - (parseFloat(totalReceived) || 0));
-  const autoStatus = totalDue <= 0 && (parseFloat(totalReceived) || 0) > 0 ? 'PAID' : 'PENDING';
-
-  if (initialLoading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-64 rounded-xl" />
-      </div>
-    );
-  }
-
-  if (companies.length === 0) {
-    return (
-      <div className="space-y-6">
-        <h2 className="text-2xl font-bold">{isEditing ? 'Edit Payment Record' : 'Add Payment Record'}</h2>
-        <Card className="border-2 border-dashed border-blue-300 dark:border-blue-700">
-          <CardContent className="p-8 text-center">
-            <Briefcase className="h-16 w-16 text-blue-400 mx-auto mb-4" />
-            <h3 className="text-xl font-bold mb-2">No Companies Yet</h3>
-            <p className="text-muted-foreground mb-4">Please add a company first before creating payment records.</p>
-            <Button onClick={() => setCurrentView('add-company')} className="bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-md">
-              <Plus className="h-4 w-4 mr-2" /> Add Company
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => setCurrentView('records')}>
-          <X className="h-5 w-5" />
+          <ChevronRight className="h-4 w-4 rotate-180" />
         </Button>
         <div>
-          <h2 className="text-2xl font-bold">{isEditing ? 'Edit Payment Record' : 'Add Payment Record'}</h2>
-          <p className="text-muted-foreground">{isEditing ? 'Update payment details' : 'Record a new payment'}</p>
+          <h1 className="text-2xl font-bold">{editMode ? 'Edit Payment Record' : 'Add Payment Record'}</h1>
+          <p className="text-muted-foreground text-sm">
+            {editMode ? 'Update payment details' : 'Record a new payment entry'}
+          </p>
         </div>
       </div>
 
-      <form onSubmit={handleSubmit}>
-        <Card className="shadow-md border-0 dark:border">
-          <CardContent className="p-6 space-y-6">
-            {/* Company Selection */}
-            <div className="space-y-2">
-              <Label>Company</Label>
-              <Select value={companyId} onValueChange={setCompanyId}>
-                <SelectTrigger>
-                  <Briefcase className="h-4 w-4 mr-2 text-muted-foreground" />
-                  <SelectValue placeholder="Select a company" />
-                </SelectTrigger>
-                <SelectContent>
-                  {companies.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+      <form onSubmit={handleSubmit} className="space-y-4 max-w-lg">
+        <div className="space-y-2">
+          <Label>Company *</Label>
+          {companies.length === 0 ? (
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" />
+              No companies yet.{' '}
+              <button type="button" onClick={() => setCurrentView('add-company')} className="text-primary hover:underline">
+                Add one first
+              </button>
             </div>
+          ) : (
+            <Select value={companyId} onValueChange={setCompanyId} disabled={editMode}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select company" />
+              </SelectTrigger>
+              <SelectContent>
+                {companies.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
 
-            {/* Month and Year */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Month</Label>
-                <Select value={String(month)} onValueChange={(v) => setMonth(parseInt(v))}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MONTH_NAMES.slice(1).map((name, idx) => (
-                      <SelectItem key={idx + 1} value={String(idx + 1)}>{name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Year</Label>
-                <Select value={String(year)} onValueChange={(v) => setYear(parseInt(v))}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {[2024, 2025, 2026, 2027].map((y) => (
-                      <SelectItem key={y} value={String(y)}>{y}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Month *</Label>
+            <Select value={month} onValueChange={setMonth} disabled={editMode}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select" />
+              </SelectTrigger>
+              <SelectContent>
+                {MONTH_NAMES.slice(1).map((m, i) => (
+                  <SelectItem key={i} value={(i + 1).toString()}>{m}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Year *</Label>
+            <Input
+              type="number"
+              value={year}
+              onChange={(e) => setYear(e.target.value)}
+              disabled={editMode}
+              placeholder="2025"
+            />
+          </div>
+        </div>
+
+        {/* Shift Hours Info Banner */}
+        {shiftHoursInfo && (
+          <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 p-3 flex items-start gap-2">
+            <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+            <div className="text-sm">
+              <p className="text-blue-800 dark:text-blue-300">
+                Based on your shift records, you worked <strong>{shiftHoursInfo.totalHours}</strong> hours across <strong>{shiftHoursInfo.totalShifts}</strong> shifts this month. You can change this if needed.
+              </p>
             </div>
+          </div>
+        )}
 
-            <Separator />
+        <div className="space-y-2">
+          <Label>Worked Hours</Label>
+          <Input
+            type="number"
+            step="0.5"
+            value={workedHours}
+            onChange={(e) => setWorkedHours(e.target.value)}
+            placeholder="0"
+          />
+        </div>
 
-            {/* Financial Details */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Total Expected (£)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={totalExpected}
-                  onChange={(e) => { setTotalExpected(e.target.value); if (!isEditing) setStatus(autoStatus); }}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Total Received (£)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={totalReceived}
-                  onChange={(e) => { setTotalReceived(e.target.value); if (!isEditing) setStatus(autoStatus); }}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Total HMRC (£)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={totalHMRC}
-                  onChange={(e) => setTotalHMRC(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Worked Hours</Label>
-                <Input
-                  type="number"
-                  step="0.1"
-                  placeholder="0.0"
-                  value={workedHours}
-                  onChange={(e) => setWorkedHours(e.target.value)}
-                />
-              </div>
-            </div>
+        <Separator />
 
-            {/* Auto-calculated fields */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="p-3 bg-muted/50 rounded-lg">
-                <Label className="text-xs text-muted-foreground">Total Due (auto-calculated)</Label>
-                <p className={`text-lg font-bold ${totalDue > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
-                  {formatCurrency(totalDue)}
-                </p>
-              </div>
-              <div className="p-3 bg-muted/50 rounded-lg">
-                <Label className="text-xs text-muted-foreground">Status (auto-calculated)</Label>
-                <Badge
-                  className={`mt-1 ${autoStatus === 'PAID' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'}`}
-                >
-                  {autoStatus === 'PAID' ? <CheckCircle2 className="h-3 w-3 mr-1" /> : <HourglassIcon className="h-3 w-3 mr-1" />}
-                  {autoStatus}
-                </Badge>
-              </div>
-            </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Total Expected (GBP)</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={totalExpected}
+              onChange={(e) => setTotalExpected(e.target.value)}
+              placeholder="0.00"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Total Received (GBP)</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={totalReceived}
+              onChange={(e) => setTotalReceived(e.target.value)}
+              placeholder="0.00"
+            />
+          </div>
+        </div>
 
-            {/* Notes */}
-            <div className="space-y-2">
-              <Label>Notes</Label>
-              <Textarea
-                placeholder="Add any notes about this payment..."
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                rows={3}
-              />
-            </div>
+        <div className="space-y-2">
+          <Label>HMRC Deductions (GBP)</Label>
+          <Input
+            type="number"
+            step="0.01"
+            value={totalHMRC}
+            onChange={(e) => setTotalHMRC(e.target.value)}
+            placeholder="0.00"
+          />
+        </div>
 
-            {/* Pay Slip Upload (only for editing) */}
-            {isEditing && (
-              <div className="space-y-2">
-                <Label>Pay Slip</Label>
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handlePaySlipUpload}
-                  accept=".pdf,.png,.jpg,.jpeg"
-                  className="hidden"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  Upload Pay Slip
-                </Button>
-              </div>
-            )}
+        {totalExpected && totalReceived && (
+          <div className="rounded-lg bg-muted p-3 flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Amount Due</span>
+            <span className={cn(
+              'font-bold',
+              parseFloat(totalExpected) - parseFloat(totalReceived) <= 0
+                ? 'text-green-600 dark:text-green-400'
+                : 'text-amber-600 dark:text-amber-400'
+            )}>
+              {formatCurrency(Math.max(0, parseFloat(totalExpected) - parseFloat(totalReceived)))}
+            </span>
+          </div>
+        )}
 
-            {/* Submit */}
-            <div className="flex gap-3">
-              <Button
-                type="submit"
-                disabled={loading}
-                className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-md"
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                {isEditing ? 'Update Record' : 'Create Record'}
-              </Button>
-              <Button type="button" variant="outline" onClick={() => setCurrentView('records')}>
-                Cancel
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="space-y-2">
+          <Label>Status</Label>
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="PENDING">Pending</SelectItem>
+              <SelectItem value="PAID">Paid</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Notes</Label>
+          <Textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Any additional notes..."
+            rows={3}
+          />
+        </div>
+
+        <div className="flex gap-2 pt-2">
+          <Button type="button" variant="outline" onClick={() => setCurrentView('records')}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            disabled={loading || !companyId || !month || !year}
+            className="bg-gradient-to-r from-blue-600 to-green-600 text-white"
+          >
+            {loading ? 'Saving...' : editMode ? 'Update Record' : 'Create Record'}
+          </Button>
+        </div>
       </form>
     </div>
   );
 }
 
-// ===================== REFERRALS VIEW =====================
-function ReferralsView() {
-  const { user } = useAppStore();
-  const [referralData, setReferralData] = useState<{ referralCode: string; referralCount: number; isPremium: boolean } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [copied, setCopied] = useState(false);
+// ──────────────────────────────────────────────
+// Companies View
+// ──────────────────────────────────────────────
 
-  const fetchReferrals = useCallback(async () => {
+function CompaniesView() {
+  const { user, setCurrentView } = useAppStore();
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [addLoading, setAddLoading] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  const fetchCompanies = useCallback(async () => {
     try {
-      const data = await apiFetch<{ referralCode: string; referralCount: number; isPremium: boolean }>('/api/referrals');
-      setReferralData(data);
+      const data = await apiFetch('/api/companies');
+      setCompanies(data.companies || []);
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to load referrals');
+      toast.error(err instanceof Error ? err.message : 'Failed to load companies');
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchReferrals();
-  }, [fetchReferrals]);
+    fetchCompanies();
+  }, [fetchCompanies]);
 
-  const handleCopyCode = async () => {
-    if (!referralData?.referralCode) return;
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    setAddLoading(true);
     try {
-      await navigator.clipboard.writeText(referralData.referralCode);
-      setCopied(true);
-      toast.success('Referral code copied!');
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      toast.error('Failed to copy');
+      await apiFetch('/api/companies', {
+        method: 'POST',
+        body: JSON.stringify({ name: newName.trim() }),
+      });
+      toast.success('Company added');
+      setNewName('');
+      setShowAdd(false);
+      fetchCompanies();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to add company');
+    } finally {
+      setAddLoading(false);
     }
+  };
+
+  const handleEdit = async (id: string) => {
+    if (!editName.trim()) return;
+    try {
+      await apiFetch(`/api/companies/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name: editName.trim() }),
+      });
+      toast.success('Company updated');
+      setEditId(null);
+      fetchCompanies();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await apiFetch(`/api/companies/${id}`, { method: 'DELETE' });
+      toast.success('Company deleted');
+      fetchCompanies();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete');
+    }
+    setDeleteId(null);
   };
 
   if (loading) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-40 rounded-xl" />
-        <Skeleton className="h-32 rounded-xl" />
+        {Array.from({ length: 2 }).map((_, i) => (
+          <Skeleton key={i} className="h-16" />
+        ))}
       </div>
     );
   }
 
-  const isPremium = referralData?.isPremium ?? user?.isPremium ?? false;
-
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">Referrals & Premium</h2>
-        <p className="text-muted-foreground">Share TrishulHub with friends and unlock Premium features</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Companies</h1>
+          <p className="text-muted-foreground text-sm">{companies.length} companies tracked</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {!user?.isPremium && companies.length >= 1 && (
+            <Badge variant="secondary" className="text-xs">
+              Free: 1 company max
+            </Badge>
+          )}
+          <Button onClick={() => setShowAdd(true)} className="bg-gradient-to-r from-blue-600 to-green-600 text-white">
+            <Plus className="h-4 w-4 mr-2" /> Add Company
+          </Button>
+        </div>
       </div>
 
-      {/* Premium Status */}
-      <Card className={`shadow-md border-0 dark:border ${isPremium ? 'bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-950/30 dark:to-yellow-950/30 border-2 border-amber-300 dark:border-amber-700' : ''}`}>
-        <CardContent className="p-6">
-          <div className="flex items-center gap-4">
-            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg ${isPremium ? 'bg-gradient-to-br from-amber-500 to-yellow-600' : 'bg-muted'}`}>
-              <Crown className={`h-8 w-8 ${isPremium ? 'text-white' : 'text-muted-foreground'}`} />
-            </div>
-            <div className="flex-1">
-              <h3 className="text-xl font-bold">
-                {isPremium ? 'Premium Active' : 'Free Plan'}
-              </h3>
-              <p className="text-muted-foreground">
-                {isPremium
-                  ? 'You have unlimited company tracking!'
-                  : 'Track up to 1 company for free'}
-              </p>
-            </div>
-            <Badge className={`text-sm px-3 py-1 ${isPremium ? 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300' : 'bg-muted text-muted-foreground'}`}>
-              {isPremium ? 'Premium' : 'Free'}
-            </Badge>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Add Form */}
+      <AnimatePresence>
+        {showAdd && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+          >
+            <Card>
+              <CardContent className="p-4">
+                <form onSubmit={handleAdd} className="flex gap-2">
+                  <Input
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="Company name"
+                    disabled={addLoading}
+                    className="flex-1"
+                  />
+                  <Button type="submit" disabled={addLoading || !newName.trim()} className="bg-gradient-to-r from-blue-600 to-green-600 text-white">
+                    {addLoading ? 'Adding...' : 'Add'}
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => { setShowAdd(false); setNewName(''); }}>
+                    Cancel
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* Referral Code */}
-      <Card className="shadow-md border-0 dark:border">
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Gift className="h-5 w-5 text-blue-600" />
-            Your Referral Code
-          </CardTitle>
-          <CardDescription>
-            Share this code with friends. When they sign up with your code, you unlock Premium!
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="flex-1 p-4 bg-muted/50 rounded-xl text-center">
-              <p className="text-2xl font-mono font-bold tracking-wider text-blue-600 dark:text-blue-400">
-                {referralData?.referralCode || 'Loading...'}
-              </p>
-            </div>
-            <Button
-              onClick={handleCopyCode}
-              variant="outline"
-              size="lg"
-              className="border-blue-200 dark:border-blue-800"
-            >
-              {copied ? <CheckCircle2 className="h-4 w-4 mr-2 text-green-600" /> : <Copy className="h-4 w-4 mr-2" />}
-              {copied ? 'Copied!' : 'Copy'}
+      {/* Companies List */}
+      {companies.length === 0 ? (
+        <Card>
+          <CardContent className="p-8 text-center">
+            <Briefcase className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+            <h3 className="font-medium">No companies yet</h3>
+            <p className="text-sm text-muted-foreground mb-4">Add a company to start tracking payments</p>
+            <Button onClick={() => setShowAdd(true)} className="bg-gradient-to-r from-blue-600 to-green-600 text-white">
+              <Plus className="h-4 w-4 mr-2" /> Add Company
             </Button>
-          </div>
-
-          {/* How it works */}
-          <div className="p-4 bg-blue-50 dark:bg-blue-950/30 rounded-xl space-y-3">
-            <h4 className="font-bold text-sm">How it works:</h4>
-            <div className="flex items-start gap-3">
-              <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold shrink-0">1</div>
-              <p className="text-sm text-muted-foreground">Share your referral code <span className="font-mono font-bold text-blue-600 dark:text-blue-400">{referralData?.referralCode}</span> with a friend</p>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold shrink-0">2</div>
-              <p className="text-sm text-muted-foreground">They sign up for TrishulHub using your code</p>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="w-6 h-6 bg-green-600 text-white rounded-full flex items-center justify-center text-xs font-bold shrink-0">3</div>
-              <p className="text-sm text-muted-foreground">You both get Premium — unlimited company tracking!</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Referral Stats */}
-      <Card className="shadow-md border-0 dark:border">
-        <CardHeader>
-          <CardTitle className="text-lg">Referral Stats</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="text-center p-4 bg-muted/50 rounded-xl">
-              <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{referralData?.referralCount || 0}</p>
-              <p className="text-sm text-muted-foreground">Successful Referrals</p>
-            </div>
-            <div className="text-center p-4 bg-muted/50 rounded-xl">
-              <p className="text-3xl font-bold">
-                {isPremium ? (
-                  <span className="text-green-600 dark:text-green-400">Unlimited</span>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {companies.map((company) => (
+            <Card key={company.id} className="hover:shadow-md transition-shadow">
+              <CardContent className="p-4">
+                {editId === company.id ? (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleEdit(company.id);
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    <Input
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className="flex-1"
+                    />
+                    <Button type="submit" size="sm">Save</Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => setEditId(null)}>
+                      Cancel
+                    </Button>
+                  </form>
                 ) : (
-                  <span className="text-amber-600 dark:text-amber-400">1</span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Building2 className="h-5 w-5 text-primary shrink-0" />
+                      <div className="min-w-0">
+                        <h3 className="font-medium truncate">{company.name}</h3>
+                        <p className="text-xs text-muted-foreground">
+                          {company._count?.paymentRecords || 0} payment records
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        onClick={() => {
+                          setEditId(company.id);
+                          setEditName(company.name);
+                        }}
+                      >
+                        <Edit3 className="h-3.5 w-3.5" />
+                      </Button>
+                      <AlertDialog open={deleteId === company.id} onOpenChange={(open) => !open && setDeleteId(null)}>
+                        <AlertDialogTrigger asChild>
+                          <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => setDeleteId(company.id)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete Company?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This will permanently delete {company.name} and all its payment records. This action cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => handleDelete(company.id)} className="bg-destructive text-destructive-foreground">
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </div>
                 )}
-              </p>
-              <p className="text-sm text-muted-foreground">Companies Allowed</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Premium Upgrade Notice */}
+      {!user?.isPremium && companies.length >= 1 && (
+        <Card className="bg-gradient-to-r from-blue-600/10 to-green-600/10 border-primary/20">
+          <CardContent className="p-4 flex items-center gap-3">
+            <Star className="h-5 w-5 text-primary shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium">Want to track more companies?</p>
+              <p className="text-xs text-muted-foreground">Refer a friend to unlock Premium and add unlimited companies!</p>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+            <Button size="sm" variant="outline" onClick={() => setCurrentView('referrals')} className="shrink-0">
+              Refer Now
+            </Button>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
 
-// ===================== SETTINGS VIEW =====================
-function SettingsView() {
+// ──────────────────────────────────────────────
+// Shifts View
+// ──────────────────────────────────────────────
+
+function ShiftsView() {
+  const { setCurrentView, setSelectedShiftId } = useAppStore();
+  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [totals, setTotals] = useState({ totalHours: 0, totalBreakMinutes: 0, totalShifts: 0 });
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filterCompany, setFilterCompany] = useState<string>('');
+  const [filterMonth, setFilterMonth] = useState<string>('');
+  const [filterYear, setFilterYear] = useState<string>('');
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  const fetchShifts = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      if (filterCompany) params.set('companyId', filterCompany);
+      if (filterMonth) params.set('month', filterMonth);
+      if (filterYear) params.set('year', filterYear);
+      const data = await apiFetch(`/api/shifts?${params.toString()}`);
+      setShifts(data.shifts || []);
+      setTotals(data.totals || { totalHours: 0, totalBreakMinutes: 0, totalShifts: 0 });
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to load shifts');
+    } finally {
+      setLoading(false);
+    }
+  }, [filterCompany, filterMonth, filterYear]);
+
+  const fetchCompanies = useCallback(async () => {
+    try {
+      const data = await apiFetch('/api/companies');
+      setCompanies(data.companies || []);
+    } catch {
+      // silently fail
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCompanies();
+  }, [fetchCompanies]);
+
+  useEffect(() => {
+    fetchShifts();
+  }, [fetchShifts]);
+
+  const handleDelete = async (id: string) => {
+    try {
+      await apiFetch(`/api/shifts/${id}`, { method: 'DELETE' });
+      toast.success('Shift deleted');
+      fetchShifts();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete');
+    }
+    setDeleteId(null);
+  };
+
+  const getShiftTypeBadge = (type: string) => {
+    const config = SHIFT_TYPES.find((t) => t.value === type);
+    const label = config?.label || type;
+    const colorClass = type === 'REGULAR' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+      : type === 'OVERTIME' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+      : type === 'HOLIDAY' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+      : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+    return <Badge className={cn('text-[10px]', colorClass)}>{label}</Badge>;
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-48" />
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-16" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Shifts</h1>
+          <p className="text-muted-foreground text-sm">Track your work shifts and hours</p>
+        </div>
+        <Button onClick={() => setCurrentView('add-shift')} className="bg-gradient-to-r from-blue-600 to-green-600 text-white">
+          <Plus className="h-4 w-4 mr-2" /> Add Shift
+        </Button>
+      </div>
+
+      {/* Summary Stats */}
+      {totals.totalShifts > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="rounded-lg bg-muted/50 p-3 text-center">
+            <p className="text-xs text-muted-foreground">Total Shifts</p>
+            <p className="text-lg font-bold">{totals.totalShifts}</p>
+          </div>
+          <div className="rounded-lg bg-muted/50 p-3 text-center">
+            <p className="text-xs text-muted-foreground">Total Hours</p>
+            <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{formatHours(totals.totalHours)}</p>
+          </div>
+          <div className="rounded-lg bg-muted/50 p-3 text-center">
+            <p className="text-xs text-muted-foreground">Break Time</p>
+            <p className="text-lg font-bold">{Math.round(totals.totalBreakMinutes)} min</p>
+          </div>
+          <div className="rounded-lg bg-muted/50 p-3 text-center">
+            <p className="text-xs text-muted-foreground">Avg Hours/Shift</p>
+            <p className="text-lg font-bold">{totals.totalShifts > 0 ? (totals.totalHours / totals.totalShifts).toFixed(1) : '0.0'} hrs</p>
+          </div>
+        </div>
+      )}
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-2">
+        <Select value={filterCompany} onValueChange={setFilterCompany}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="All Companies" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Companies</SelectItem>
+            {companies.map((c) => (
+              <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={filterMonth} onValueChange={setFilterMonth}>
+          <SelectTrigger className="w-[140px]">
+            <SelectValue placeholder="All Months" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Months</SelectItem>
+            {MONTH_NAMES.slice(1).map((m, i) => (
+              <SelectItem key={i} value={(i + 1).toString()}>{m}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={filterYear} onValueChange={setFilterYear}>
+          <SelectTrigger className="w-[120px]">
+            <SelectValue placeholder="All Years" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Years</SelectItem>
+            {[2025, 2024, 2023, 2022].map((y) => (
+              <SelectItem key={y} value={y.toString()}>{y}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Shifts List */}
+      {shifts.length === 0 ? (
+        <Card>
+          <CardContent className="p-8 text-center">
+            <Clock className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+            <h3 className="font-medium">No shifts recorded yet</h3>
+            <p className="text-sm text-muted-foreground mb-4">Add your first shift to start tracking hours</p>
+            <Button onClick={() => setCurrentView('add-shift')} className="bg-gradient-to-r from-blue-600 to-green-600 text-white">
+              <Plus className="h-4 w-4 mr-2" /> Add Shift
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2 max-h-[calc(100vh-400px)] overflow-y-auto custom-scrollbar">
+          {shifts.map((shift) => (
+            <Card key={shift.id} className="hover:shadow-md transition-shadow">
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-medium text-sm">{shift.company.name}</h3>
+                      {getShiftTypeBadge(shift.shiftType)}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        <Calendar className="h-3 w-3" /> {shift.date}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Timer className="h-3 w-3" /> {shift.startTime} – {shift.endTime}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Coffee className="h-3 w-3" /> {shift.breakMinutes} min break
+                      </span>
+                      {shift.location && (
+                        <span className="flex items-center gap-1">
+                          <MapPin className="h-3 w-3" /> {shift.location}
+                        </span>
+                      )}
+                    </div>
+                    {shift.notes && (
+                      <p className="text-xs text-muted-foreground mt-1 truncate">{shift.notes}</p>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <span className="font-bold text-sm text-blue-600 dark:text-blue-400">{formatHours(shift.totalHours)}</span>
+                    <div className="flex gap-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7"
+                        onClick={() => {
+                          setSelectedShiftId(shift.id);
+                          setCurrentView('edit-shift');
+                        }}
+                      >
+                        <Edit3 className="h-3 w-3" />
+                      </Button>
+                      <AlertDialog open={deleteId === shift.id} onOpenChange={(open) => !open && setDeleteId(null)}>
+                        <AlertDialogTrigger asChild>
+                          <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => setDeleteId(shift.id)}>
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete Shift?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Delete the shift on {shift.date} ({shift.startTime} – {shift.endTime})?
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => handleDelete(shift.id)} className="bg-destructive text-destructive-foreground">
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Add/Edit Shift Form
+// ──────────────────────────────────────────────
+
+function ShiftForm({ editMode }: { editMode: boolean }) {
+  const { selectedShiftId, setCurrentView } = useAppStore();
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [fetchingShift, setFetchingShift] = useState(false);
+
+  const [companyId, setCompanyId] = useState('');
+  const [date, setDate] = useState('');
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
+  const [breakMinutes, setBreakMinutes] = useState('0');
+  const [shiftType, setShiftType] = useState('REGULAR');
+  const [location, setLocation] = useState('');
+  const [notes, setNotes] = useState('');
+
+  const [calculatedHours, setCalculatedHours] = useState<number | null>(null);
+
+  // Auto-calculate hours
+  useEffect(() => {
+    if (startTime && endTime) {
+      const [startH, startM] = startTime.split(':').map(Number);
+      const [endH, endM] = endTime.split(':').map(Number);
+      let startMin = startH * 60 + startM;
+      let endMin = endH * 60 + endM;
+      if (endMin <= startMin) endMin += 24 * 60; // overnight shift
+      const worked = endMin - startMin - (parseInt(breakMinutes) || 0);
+      setCalculatedHours(Math.max(0, worked / 60));
+    } else {
+      setCalculatedHours(null);
+    }
+  }, [startTime, endTime, breakMinutes]);
+
+  // Fetch companies
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await apiFetch('/api/companies');
+        setCompanies(data.companies || []);
+        if (!editMode && data.companies?.length === 1) {
+          setCompanyId(data.companies[0].id);
+        }
+      } catch {
+        // silently fail
+      }
+    })();
+  }, [editMode]);
+
+  // Fetch existing shift for edit mode
+  useEffect(() => {
+    if (editMode && selectedShiftId) {
+      setFetchingShift(true);
+      (async () => {
+        try {
+          const data = await apiFetch('/api/shifts');
+          const shift = (data.shifts as Shift[])?.find((s) => s.id === selectedShiftId);
+          if (shift) {
+            setCompanyId(shift.companyId);
+            setDate(shift.date);
+            setStartTime(shift.startTime);
+            setEndTime(shift.endTime);
+            setBreakMinutes(shift.breakMinutes.toString());
+            setShiftType(shift.shiftType);
+            setLocation(shift.location || '');
+            setNotes(shift.notes || '');
+          }
+        } catch {
+          // silently fail
+        } finally {
+          setFetchingShift(false);
+        }
+      })();
+    }
+  }, [editMode, selectedShiftId]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!companyId || !date || !startTime || !endTime) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+    setLoading(true);
+    try {
+      const body = {
+        companyId,
+        date,
+        startTime,
+        endTime,
+        breakMinutes: parseInt(breakMinutes) || 0,
+        shiftType,
+        location: location || null,
+        notes: notes || null,
+      };
+
+      if (editMode && selectedShiftId) {
+        await apiFetch(`/api/shifts/${selectedShiftId}`, {
+          method: 'PUT',
+          body: JSON.stringify(body),
+        });
+        toast.success('Shift updated');
+      } else {
+        await apiFetch('/api/shifts', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        toast.success('Shift added');
+      }
+      setCurrentView('shifts');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save shift');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (fetchingShift) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-48" />
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-10" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="icon" onClick={() => setCurrentView('shifts')}>
+          <ChevronRight className="h-4 w-4 rotate-180" />
+        </Button>
+        <div>
+          <h1 className="text-2xl font-bold">{editMode ? 'Edit Shift' : 'Add Shift'}</h1>
+          <p className="text-muted-foreground text-sm">
+            {editMode ? 'Update shift details' : 'Record a new work shift'}
+          </p>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4 max-w-lg">
+        <div className="space-y-2">
+          <Label>Company *</Label>
+          {companies.length === 0 ? (
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" />
+              No companies yet.{' '}
+              <button type="button" onClick={() => setCurrentView('add-company')} className="text-primary hover:underline">
+                Add one first
+              </button>
+            </div>
+          ) : (
+            <Select value={companyId} onValueChange={setCompanyId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select company" />
+              </SelectTrigger>
+              <SelectContent>
+                {companies.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <Label>Date *</Label>
+          <Input
+            type="text"
+            placeholder="YYYY-MM-DD"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            pattern="\d{4}-\d{2}-\d{2}"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Start Time *</Label>
+            <Input
+              type="time"
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>End Time *</Label>
+            <Input
+              type="time"
+              value={endTime}
+              onChange={(e) => setEndTime(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Break (minutes)</Label>
+            <Input
+              type="number"
+              value={breakMinutes}
+              onChange={(e) => setBreakMinutes(e.target.value)}
+              min="0"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Shift Type</Label>
+            <Select value={shiftType} onValueChange={setShiftType}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SHIFT_TYPES.map((t) => (
+                  <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* Calculated Hours Preview */}
+        {calculatedHours !== null && (
+          <div className="rounded-lg bg-muted p-3 flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Total Hours</span>
+            <span className="font-bold text-blue-600 dark:text-blue-400">{formatHours(calculatedHours)}</span>
+          </div>
+        )}
+
+        {endTime && startTime && parseInt(endTime.split(':')[0]) < parseInt(startTime.split(':')[0]) && (
+          <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-3 flex items-start gap-2">
+            <Info className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+            <p className="text-xs text-amber-800 dark:text-amber-300">This looks like an overnight shift. Hours will be calculated across midnight.</p>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <Label>Location</Label>
+          <Input
+            type="text"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            placeholder="e.g. London Office"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label>Notes</Label>
+          <Textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Any additional notes..."
+            rows={2}
+          />
+        </div>
+
+        <div className="flex gap-2 pt-2">
+          <Button type="button" variant="outline" onClick={() => setCurrentView('shifts')}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            disabled={loading || !companyId || !date || !startTime || !endTime}
+            className="bg-gradient-to-r from-blue-600 to-green-600 text-white"
+          >
+            {loading ? 'Saving...' : editMode ? 'Update Shift' : 'Add Shift'}
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Referrals View
+// ──────────────────────────────────────────────
+
+function ReferralsView() {
   const { user } = useAppStore();
-  const { theme, setTheme } = useTheme();
+  const [referralCode, setReferralCode] = useState(user?.referralCode || '');
+  const [referralCount, setReferralCount] = useState(0);
+  const [isPremium, setIsPremium] = useState(user?.isPremium || false);
+  const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await apiFetch('/api/referrals');
+        setReferralCode(data.referralCode);
+        setReferralCount(data.referralCount);
+        setIsPremium(data.isPremium);
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : 'Failed to load referrals');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(referralCode);
+    setCopied(true);
+    toast.success('Referral code copied!');
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-40" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold">Settings</h2>
-        <p className="text-muted-foreground">Manage your account and preferences</p>
+        <h1 className="text-2xl font-bold">Referrals</h1>
+        <p className="text-muted-foreground text-sm">Refer a friend to unlock Premium!</p>
       </div>
 
-      {/* Profile */}
-      <Card className="shadow-md border-0 dark:border">
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            Profile
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-4">
-            <Avatar className="h-16 w-16">
-              <AvatarFallback className="bg-blue-100 text-blue-700 text-xl dark:bg-blue-900 dark:text-blue-300">
-                {user?.name?.charAt(0) || 'U'}
-              </AvatarFallback>
-            </Avatar>
-            <div>
-              <h3 className="text-xl font-bold">{user?.name}</h3>
-              <p className="text-muted-foreground">{user?.email}</p>
-              <div className="flex items-center gap-2 mt-1">
-                {user?.isPremium ? (
-                  <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
-                    <Crown className="h-3 w-3 mr-1" /> Premium
-                  </Badge>
-                ) : (
-                  <Badge variant="secondary">Free Plan</Badge>
-                )}
+      {/* Status Card */}
+      <Card className={isPremium ? 'bg-gradient-to-r from-green-600/10 to-emerald-600/10 border-green-500/30' : 'bg-gradient-to-r from-blue-600/10 to-green-600/10 border-primary/20'}>
+        <CardContent className="p-6 text-center">
+          {isPremium ? (
+            <>
+              <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mx-auto mb-4">
+                <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-400" />
               </div>
-            </div>
-          </div>
-          <Separator />
-          <div className="space-y-2">
-            <Label className="text-sm text-muted-foreground">Referral Code</Label>
-            <p className="font-mono font-bold text-blue-600 dark:text-blue-400">{user?.referralCode}</p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Appearance */}
-      <Card className="shadow-md border-0 dark:border">
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Settings className="h-5 w-5" />
-            Appearance
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              {theme === 'dark' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
-              <div>
-                <p className="font-medium">Dark Mode</p>
-                <p className="text-sm text-muted-foreground">Toggle between light and dark themes</p>
+              <h2 className="text-xl font-bold text-green-700 dark:text-green-400">Premium Active!</h2>
+              <p className="text-sm text-muted-foreground mt-1">You can track unlimited companies</p>
+              <p className="text-sm mt-2">You&apos;ve referred <strong>{referralCount}</strong> {referralCount === 1 ? 'friend' : 'friends'}</p>
+            </>
+          ) : (
+            <>
+              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                <Star className="h-8 w-8 text-primary" />
               </div>
-            </div>
-            <Button
-              variant="outline"
-              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              className="border-blue-200 dark:border-blue-800"
-            >
-              {theme === 'dark' ? <Sun className="h-4 w-4 mr-2" /> : <Moon className="h-4 w-4 mr-2" />}
-              {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Plan Info */}
-      <Card className="shadow-md border-0 dark:border">
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Star className="h-5 w-5" />
-            Plan Details
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Current Plan</span>
-            <Badge className={user?.isPremium ? 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300' : 'bg-muted text-muted-foreground'}>
-              {user?.isPremium ? 'Premium' : 'Free'}
-            </Badge>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Companies Allowed</span>
-            <span className="font-medium">{user?.isPremium ? 'Unlimited' : '1'}</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Payment Records</span>
-            <span className="font-medium">Unlimited</span>
-          </div>
-          <Separator />
-          {!user?.isPremium && (
-            <div className="p-4 bg-amber-50 dark:bg-amber-950/30 rounded-xl text-center">
-              <Crown className="h-8 w-8 text-amber-600 dark:text-amber-400 mx-auto mb-2" />
-              <p className="font-bold">Upgrade to Premium</p>
-              <p className="text-sm text-muted-foreground mb-3">Refer a friend to unlock unlimited companies</p>
-              <Button
-                onClick={() => useAppStore.getState().setCurrentView('referrals')}
-                className="bg-gradient-to-r from-amber-500 to-yellow-600 text-white"
-              >
-                <Gift className="h-4 w-4 mr-2" /> Get Premium
-              </Button>
-            </div>
+              <h2 className="text-xl font-bold">Refer a Friend to Unlock Premium!</h2>
+              <p className="text-sm text-muted-foreground mt-1">When someone signs up with your code, YOU get Premium</p>
+            </>
           )}
         </CardContent>
       </Card>
 
-      {/* About */}
-      <Card className="shadow-md border-0 dark:border">
-        <CardContent className="p-4">
-          <div className="flex items-center gap-3">
-            <Image src="/logo.png" alt="TrishulHub" width={40} height={40} className="rounded-xl" />
+      {/* Referral Code */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Your Referral Code</CardTitle>
+          <CardDescription>Share this code with friends — when they sign up with it, you get Premium!</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 rounded-lg bg-muted p-3 text-center">
+              <span className="font-mono text-lg font-bold tracking-wider">{referralCode}</span>
+            </div>
+            <Button onClick={handleCopy} variant="outline" size="icon" className="shrink-0">
+              {copied ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* How It Works */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">How Referrals Work</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
+              <span className="text-sm font-bold text-blue-600 dark:text-blue-400">1</span>
+            </div>
             <div>
-              <p className="font-bold">TrishulHub Pay Tracker</p>
-              <p className="text-xs text-muted-foreground">Track your salary payments from any company</p>
+              <p className="text-sm font-medium">Share your referral code</p>
+              <p className="text-xs text-muted-foreground">Send your unique code to a friend</p>
             </div>
           </div>
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center shrink-0">
+              <span className="text-sm font-bold text-green-600 dark:text-green-400">2</span>
+            </div>
+            <div>
+              <p className="text-sm font-medium">They sign up with your code</p>
+              <p className="text-xs text-muted-foreground">Your friend enters your code during signup</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+              <span className="text-sm font-bold text-amber-600 dark:text-amber-400">3</span>
+            </div>
+            <div>
+              <p className="text-sm font-medium">You get Premium!</p>
+              <p className="text-xs text-muted-foreground">As the referrer, you unlock Premium and can track unlimited companies</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 gap-4">
+        <StatCard title="Friends Referred" value={referralCount} icon={Users} />
+        <StatCard title="Plan" value={isPremium ? 'Premium' : 'Free'} icon={Star} color={isPremium ? 'text-green-600 dark:text-green-400' : undefined} />
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Admin Dashboard View
+// ──────────────────────────────────────────────
+
+function AdminView() {
+  const { user } = useAppStore();
+  const [data, setData] = useState<{
+    stats: {
+      totalUsers: number;
+      premiumUsers: number;
+      freeUsers: number;
+      totalCompanies: number;
+      totalPaymentRecords: number;
+      totalShifts: number;
+      signupsThisMonth: number;
+      signupsLastMonth: number;
+      referralConversions: number;
+    };
+    recentSignups: Array<{ createdAt: string; isPremium: boolean; referredBy: string | null }>;
+    monthlySignups: Array<{ month: string; count: number }>;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (user?.role !== 'ADMIN') return;
+    (async () => {
+      try {
+        const result = await apiFetch('/api/admin');
+        setData(result);
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : 'Failed to load admin data');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [user?.role]);
+
+  if (user?.role !== 'ADMIN') {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center">
+          <Shield className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+          <h3 className="font-medium">Access Denied</h3>
+          <p className="text-sm text-muted-foreground">Admin access required</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (loading || !data) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-28" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const { stats, recentSignups, monthlySignups } = data;
+  const signupTrend = stats.signupsLastMonth > 0
+    ? Math.round(((stats.signupsThisMonth - stats.signupsLastMonth) / stats.signupsLastMonth) * 100)
+    : stats.signupsThisMonth > 0 ? 100 : 0;
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold">Admin Dashboard</h1>
+        <p className="text-muted-foreground text-sm">Platform analytics and overview</p>
+      </div>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          title="Total Signups"
+          value={stats.totalUsers}
+          icon={Users}
+          trend={signupTrend >= 0 ? 'up' : 'down'}
+          trendLabel={`${Math.abs(signupTrend)}% vs last month`}
+        />
+        <StatCard
+          title="Premium Users"
+          value={stats.premiumUsers}
+          icon={Star}
+          color="text-green-600 dark:text-green-400"
+        />
+        <StatCard
+          title="Free Users"
+          value={stats.freeUsers}
+          icon={Users}
+          color="text-muted-foreground"
+        />
+        <StatCard
+          title="Total Companies"
+          value={stats.totalCompanies}
+          icon={Building2}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          title="Payment Records"
+          value={stats.totalPaymentRecords}
+          icon={ClipboardList}
+        />
+        <StatCard
+          title="Total Shifts"
+          value={stats.totalShifts}
+          icon={Clock}
+        />
+        <StatCard
+          title="Signups This Month"
+          value={stats.signupsThisMonth}
+          icon={TrendingUp}
+          color="text-blue-600 dark:text-blue-400"
+        />
+        <StatCard
+          title="Referral Conversions"
+          value={stats.referralConversions}
+          icon={Gift}
+          color="text-green-600 dark:text-green-400"
+        />
+      </div>
+
+      {/* Monthly Signups Trend */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Monthly Signups (Last 6 Months)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {monthlySignups.map((ms) => {
+              const maxCount = Math.max(...monthlySignups.map((m) => m.count), 1);
+              const widthPercent = (ms.count / maxCount) * 100;
+              return (
+                <div key={ms.month} className="flex items-center gap-3">
+                  <span className="text-xs text-muted-foreground w-24 shrink-0">{ms.month}</span>
+                  <div className="flex-1 h-6 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-blue-600 to-green-600 rounded-full transition-all duration-500"
+                      style={{ width: `${widthPercent}%` }}
+                    />
+                  </div>
+                  <span className="text-xs font-medium w-8 text-right">{ms.count}</span>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Recent Signups */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Recent Signups</CardTitle>
+          <CardDescription>No personal data shown — just metadata</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Date</TableHead>
+                <TableHead>Plan</TableHead>
+                <TableHead>Referred</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {recentSignups.map((signup, i) => (
+                <TableRow key={i}>
+                  <TableCell className="text-sm">
+                    {new Date(signup.createdAt).toLocaleDateString('en-GB', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                    })}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={signup.isPremium ? 'default' : 'secondary'} className="text-[10px]">
+                      {signup.isPremium ? 'Premium' : 'Free'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {signup.referredBy ? (
+                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                    ) : (
+                      <X className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>
   );
 }
 
-// ===================== MAIN APP =====================
+// ──────────────────────────────────────────────
+// Settings View
+// ──────────────────────────────────────────────
+
+function SettingsView() {
+  const { user, logout } = useAppStore();
+  const { theme, setTheme } = useTheme();
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await apiFetch('/api/auth/logout', { method: 'POST' });
+      logout();
+      toast.success('Logged out');
+    } catch {
+      logout();
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold">Settings</h1>
+        <p className="text-muted-foreground text-sm">Manage your account and preferences</p>
+      </div>
+
+      {/* Profile Card */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Profile</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Name</span>
+            <span className="text-sm font-medium">{user?.name}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Email</span>
+            <span className="text-sm font-medium">{user?.email}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Plan</span>
+            <Badge variant={user?.isPremium ? 'default' : 'secondary'}>
+              {user?.isPremium ? 'Premium' : 'Free'}
+            </Badge>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Role</span>
+            <Badge variant="outline">{user?.role || 'USER'}</Badge>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Referral Code</span>
+            <span className="text-sm font-mono font-bold text-primary">{user?.referralCode}</span>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Theme */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Appearance</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {theme === 'dark' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+              <span className="text-sm">Dark Mode</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Select value={theme} onValueChange={setTheme}>
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="light">Light</SelectItem>
+                  <SelectItem value="dark">Dark</SelectItem>
+                  <SelectItem value="system">System</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Danger Zone */}
+      <Card className="border-destructive/30">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base text-destructive">Danger Zone</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Button
+            variant="destructive"
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="w-full sm:w-auto"
+          >
+            <LogOut className="h-4 w-4 mr-2" />
+            {loggingOut ? 'Logging out...' : 'Log Out'}
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Main App Layout
+// ──────────────────────────────────────────────
+
 function MainApp() {
-  const { currentView } = useAppStore();
+  const { user, currentView, sidebarOpen } = useAppStore();
+  const isMobile = useIsMobile();
+
+  useEffect(() => {
+    // Check session on mount
+    (async () => {
+      try {
+        const data = await apiFetch('/api/auth/session');
+        if (data.user) {
+          useAppStore.getState().setUser(data.user);
+        } else {
+          useAppStore.getState().logout();
+        }
+      } catch {
+        useAppStore.getState().logout();
+      }
+    })();
+  }, []);
+
+  if (!user) return null;
 
   const renderView = () => {
     switch (currentView) {
@@ -2065,13 +2648,22 @@ function MainApp() {
       case 'records':
         return <PaymentRecordsView />;
       case 'add-record':
+        return <PaymentRecordForm editMode={false} />;
       case 'edit-record':
-        return <RecordFormView />;
+        return <PaymentRecordForm editMode={true} />;
       case 'companies':
       case 'add-company':
         return <CompaniesView />;
+      case 'shifts':
+        return <ShiftsView />;
+      case 'add-shift':
+        return <ShiftForm editMode={false} />;
+      case 'edit-shift':
+        return <ShiftForm editMode={true} />;
       case 'referrals':
         return <ReferralsView />;
+      case 'admin':
+        return <AdminView />;
       case 'settings':
         return <SettingsView />;
       default:
@@ -2080,9 +2672,16 @@ function MainApp() {
   };
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen bg-background">
       <Sidebar />
-      <main className="flex-1 p-4 md:p-6 pt-16 md:pt-6 pb-20 md:pb-6 overflow-auto">
+      <main
+        className={cn(
+          'transition-all duration-300',
+          isMobile ? 'pb-20 pt-4 px-4' : 'pt-6 px-6',
+          !isMobile && 'ml-16'
+        )}
+        style={!isMobile ? { marginLeft: sidebarOpen ? '16rem' : '4rem' } : undefined}
+      >
         <AnimatePresence mode="wait">
           <motion.div
             key={currentView}
@@ -2099,32 +2698,37 @@ function MainApp() {
   );
 }
 
-// ===================== ROOT PAGE =====================
+// ──────────────────────────────────────────────
+// Home (Root)
+// ──────────────────────────────────────────────
+
 export default function Home() {
-  const { user, setUser, setIsLoading } = useAppStore();
-  const [checkingSession, setCheckingSession] = useState(true);
+  const { user, setUser } = useAppStore();
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    const checkSession = async () => {
+    (async () => {
       try {
-        const data = await apiFetch<{ user: SessionUser }>('/api/auth/session');
-        setUser(data.user);
+        const data = await apiFetch('/api/auth/session');
+        if (data.user) {
+          setUser(data.user);
+        }
       } catch {
-        setUser(null);
+        // Not authenticated
       } finally {
-        setCheckingSession(false);
-        setIsLoading(false);
+        setChecking(false);
       }
-    };
-    checkSession();
-  }, [setUser, setIsLoading]);
+    })();
+  }, [setUser]);
 
-  if (checkingSession) {
+  if (checking) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
-          <Image src="/logo.png" alt="TrishulHub" width={64} height={64} className="mx-auto rounded-2xl shadow-lg mb-4 animate-pulse" />
-          <p className="text-muted-foreground">Loading TrishulHub...</p>
+          <div className="relative w-16 h-16 rounded-full overflow-hidden mx-auto mb-4 ring-4 ring-primary/20">
+            <Image src="/logo.png" alt="TrishulHub" fill className="object-cover" priority />
+          </div>
+          <p className="text-muted-foreground">Loading...</p>
         </div>
       </div>
     );

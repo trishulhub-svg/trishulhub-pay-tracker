@@ -9,6 +9,7 @@ export interface SessionUser {
   name: string;
   isPremium: boolean;
   referralCode: string;
+  role: string;
 }
 
 export function createSessionToken(user: SessionUser): string {
@@ -34,6 +35,7 @@ export function verifySessionToken(token: string): SessionUser | null {
       name: payload.name,
       isPremium: payload.isPremium ?? false,
       referralCode: payload.referralCode ?? '',
+      role: payload.role ?? 'USER',
     };
   } catch {
     return null;

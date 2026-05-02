@@ -14,7 +14,7 @@ function generateReferralCode(): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const { name, email, password, referralCode } = await request.json();
+    const { name, email, password, referralCode, termsAccepted } = await request.json();
 
     if (!name || !email || !password) {
       return NextResponse.json({ error: 'Name, email, and password are required' }, { status: 400 });
@@ -22,6 +22,10 @@ export async function POST(request: NextRequest) {
 
     if (password.length < 6) {
       return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 });
+    }
+
+    if (!termsAccepted) {
+      return NextResponse.json({ error: 'You must accept the Terms and Conditions to sign up' }, { status: 400 });
     }
 
     const existing = await db.user.findUnique({ where: { email } });
@@ -39,14 +43,13 @@ export async function POST(request: NextRequest) {
       codeExists = await db.user.findUnique({ where: { referralCode: newReferralCode } });
     }
 
-    // Check referral code if provided
+    // Check referral code if provided - ONLY the REFERRER gets premium, NOT the new user
     let referredBy: string | null = null;
-    let isPremium = false;
     if (referralCode) {
       const referrer = await db.user.findUnique({ where: { referralCode } });
       if (referrer) {
         referredBy = referralCode;
-        // Mark referrer as premium
+        // Mark the REFERRER as premium - they referred someone
         await db.user.update({
           where: { id: referrer.id },
           data: { isPremium: true },
@@ -54,6 +57,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // New user is always FREE plan - they must refer others to get premium
     const user = await db.user.create({
       data: {
         email,
@@ -61,7 +65,9 @@ export async function POST(request: NextRequest) {
         password: hashedPassword,
         referralCode: newReferralCode,
         referredBy,
-        isPremium,
+        isPremium: false,
+        termsAccepted: true,
+        termsAcceptedAt: new Date(),
       },
     });
 
@@ -71,6 +77,7 @@ export async function POST(request: NextRequest) {
       name: user.name,
       isPremium: user.isPremium,
       referralCode: user.referralCode,
+      role: user.role,
     };
 
     const token = createSessionToken(sessionUser);

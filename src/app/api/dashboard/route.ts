@@ -69,6 +69,28 @@ export async function GET(request: NextRequest) {
       where: { referredBy: user.referralCode },
     });
 
+    // Get shift summary for current month
+    const currentMonthStart = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
+    const nextMonth = currentMonth === 12 ? 1 : currentMonth + 1;
+    const nextMonthYear = currentMonth === 12 ? currentYear + 1 : currentYear;
+    const currentMonthEnd = `${nextMonthYear}-${String(nextMonth).padStart(2, '0')}-01`;
+
+    const currentMonthShifts = await db.shift.findMany({
+      where: {
+        userId: user.id,
+        date: { gte: currentMonthStart, lt: currentMonthEnd },
+      },
+    });
+
+    const shiftSummary = currentMonthShifts.reduce(
+      (acc, s) => ({
+        totalHours: acc.totalHours + s.totalHours,
+        totalShifts: acc.totalShifts + 1,
+        totalBreakMinutes: acc.totalBreakMinutes + s.breakMinutes,
+      }),
+      { totalHours: 0, totalShifts: 0, totalBreakMinutes: 0 }
+    );
+
     // Stats per company
     const companyStats = companies.map((c) => {
       const companyRecords = records.filter((r) => r.companyId === c.id);
@@ -109,6 +131,11 @@ export async function GET(request: NextRequest) {
         referralCode: user.referralCode,
         referralCount,
         isPremium: user.isPremium,
+      },
+      shiftSummary: {
+        ...shiftSummary,
+        month: currentMonth,
+        year: currentYear,
       },
     });
   } catch (error) {

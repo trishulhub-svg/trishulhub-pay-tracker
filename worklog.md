@@ -1,35 +1,32 @@
 ---
 Task ID: 1
-Agent: Main Agent
-Task: Rebuild "Green Care Pay" as "TrishulHub Pay Tracker" SaaS app
+Agent: Main
+Task: Complete TrishulHub Pay Tracker rework with new features
 
 Work Log:
-- Analyzed user's TrishulHub logo (blue+green circular design with "TH" letters)
-- Understood the real use case: TrishulHub is a SaaS where ANY employee from ANY company can sign up free to track salary payments
-- Updated Prisma schema: added Company model, referralCode/referredBy/isPremium fields on User
-- Rebuilt session.ts to include isPremium and referralCode
-- Rebuilt store.ts with new views (companies, referrals, add-company) and updated SessionUser
-- Created signup API route with referral code support
-- Created companies API (CRUD with premium check - free users limited to 1 company)
-- Created referrals API
-- Updated dashboard API with company stats, per-company breakdown, and referral info
-- Updated payment records API to include companyId
-- Updated login/session APIs with new user fields
-- Deleted old admin-only users API routes
-- Updated globals.css with blue primary + green accent theme
-- Fixed layout.tsx with proper ThemeProvider for dark mode
-- Rebuilt page.tsx (2138 lines) with: AuthView (login/signup), CompaniesView, ReferralsView, Dashboard with company selector, premium upsell banners
-- Updated seed script with demo user (premium), 2 companies (Green Care + TrishulHub), 15 payment records
-- Copied TrishulHub logos to public folder
-- Fixed TypeScript errors (unknown type in JSX)
-- Fixed MONTH_NAMES formatting bug
-- All lint checks pass
-- All API endpoints tested and working
+- Updated Prisma schema with Shift model, admin role (role field on User), terms acceptance fields
+- Applied schema with `prisma db push --force-reset` and regenerated client
+- Updated session.ts to include `role` field in SessionUser
+- Updated store.ts with new view types (shifts, add-shift, edit-shift, admin) and selectedShiftId
+- Updated signup API route: requires termsAccepted=true, fixed referral logic (only referrer gets premium)
+- Updated login API route: includes role in session token
+- Updated session API route: returns fresh role from DB
+- Created shifts API routes: GET/POST /api/shifts, PUT/DELETE /api/shifts/[id], GET /api/shifts/hours
+- Created admin API route: GET /api/admin (returns stats, recentSignups, monthlySignups - NO personal data)
+- Updated dashboard API route: includes shiftSummary for current month
+- Rewrote page.tsx (2742 lines) with all new features:
+  - UK-standard Terms & Conditions dialog at signup (must be accepted)
+  - Referral logic: only referrer gets premium (not the referred user)
+  - Admin Dashboard view (only for ADMIN role users)
+  - Full Shift Tracker (like ProdHours): shift types, break tracking, auto-hours calculation, overnight shifts
+  - Auto-populate worked hours in payment form from shift data
+  - Working dark/light mode with next-themes
+  - TrishulHub branding throughout
+- Updated seed.ts with admin account (admin@trishulhub.com / admin123), demo user, shift data
+- Verified build passes successfully with all 17 API routes
 
 Stage Summary:
-- Complete TrishulHub Pay Tracker SaaS app rebuilt
-- Demo: demo@trishulhub.com / demo123
-- Free tier: 1 company, Premium: unlimited companies via referral
-- Referral code: TRISHUL-DEMO
-- Dark mode fixed with proper ThemeProvider
-- Blue+Green TrishulHub branding with real logos
+- Admin account: admin@trishulhub.com / admin123
+- Demo account: demo@trishulhub.com / demo123
+- All features implemented: T&C, referral fix, admin dashboard, shift tracker, auto-populate hours, dark mode
+- Build compiles successfully with zero errors

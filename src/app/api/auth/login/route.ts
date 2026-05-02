@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
       name: user.name,
       isPremium: user.isPremium,
       referralCode: user.referralCode,
+      role: user.role,
     };
 
     const token = createSessionToken(sessionUser);

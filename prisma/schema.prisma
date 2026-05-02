@@ -13,14 +13,18 @@ model User {
   name             String
   password         String
   phone            String?
+  role             String         @default("USER")
   referralCode     String         @unique
   referredBy       String?
   isPremium        Boolean        @default(false)
   premiumExpiresAt DateTime?
+  termsAccepted    Boolean        @default(false)
+  termsAcceptedAt  DateTime?
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
   companies        Company[]
   paymentRecords   PaymentRecord[]
+  shifts           Shift[]
 }
 
 model Company {
@@ -31,6 +35,7 @@ model Company {
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   paymentRecords PaymentRecord[]
+  shifts         Shift[]
 
   @@unique([userId, name])
 }
@@ -56,4 +61,22 @@ model PaymentRecord {
   updatedAt     DateTime @updatedAt
 
   @@unique([userId, companyId, month, year])
+}
+
+model Shift {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  date          String
+  startTime     String
+  endTime       String
+  breakMinutes  Int      @default(0)
+  totalHours    Float    @default(0)
+  shiftType     String   @default("REGULAR")
+  location      String?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }

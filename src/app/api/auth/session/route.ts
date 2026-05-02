@@ -9,10 +9,10 @@ export async function GET() {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    // Get fresh user data from DB in case isPremium changed
+    // Get fresh user data from DB in case isPremium or role changed
     const freshUser = await db.user.findUnique({
       where: { id: sessionUser.id },
-      select: { isPremium: true, referralCode: true, name: true, email: true },
+      select: { isPremium: true, referralCode: true, name: true, email: true, role: true },
     });
 
     const user = {
@@ -21,6 +21,7 @@ export async function GET() {
       name: freshUser?.name ?? sessionUser.name,
       isPremium: freshUser?.isPremium ?? sessionUser.isPremium,
       referralCode: freshUser?.referralCode ?? sessionUser.referralCode,
+      role: freshUser?.role ?? sessionUser.role ?? 'USER',
     };
 
     return NextResponse.json({ user });
