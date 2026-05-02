@@ -33,7 +33,7 @@ export async function GET() {
   }
 }
 
-// PATCH /api/admin/users — activate, deactivate, or delete a user
+// PATCH /api/admin/users — activate, deactivate, delete, or change email of a user
 export async function PATCH(request: NextRequest) {
   try {
     const adminUser = await getSession();
@@ -42,15 +42,45 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { userId, action } = body as { userId: string; action: 'activate' | 'deactivate' | 'delete' };
+    const { userId, action, newEmail } = body as { userId: string; action: 'activate' | 'deactivate' | 'delete' | 'change-email'; newEmail?: string };
 
     if (!userId || !action) {
       return NextResponse.json({ error: 'userId and action are required' }, { status: 400 });
     }
 
     // Prevent admin from deactivating/deleting themselves
-    if (userId === adminUser.id) {
+    if (userId === adminUser.id && action !== 'change-email') {
       return NextResponse.json({ error: 'Cannot modify your own account' }, { status: 400 });
+    }
+
+    if (action === 'change-email') {
+      if (!newEmail || !newEmail.includes('@')) {
+        return NextResponse.json({ error: 'A valid new email address is required' }, { status: 400 });
+      }
+      const normalizedEmail = newEmail.toLowerCase().trim();
+
+      // Check if email is already taken by another user
+      const existingUser = await db.user.findUnique({ where: { email: normalizedEmail } });
+      if (existingUser && existingUser.id !== userId) {
+        return NextResponse.json({ error: 'This email is already in use by another account' }, { status: 409 });
+      }
+
+      // Get current user to update OTP records too
+      const currentUser = await db.user.findUnique({ where: { id: userId } });
+      if (!currentUser) {
+        return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      }
+
+      // Update user email
+      await db.user.update({
+        where: { id: userId },
+        data: { email: normalizedEmail },
+      });
+
+      // Update OTP codes linked to old email
+      await db.otpCode.deleteMany({ where: { email: currentUser.email } });
+
+      return NextResponse.json({ success: true, message: `Email changed to ${normalizedEmail}` });
     }
 
     if (action === 'deactivate') {
@@ -102,7 +132,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: true, message: 'User permanently deleted' });
     }
 
-    return NextResponse.json({ error: 'Invalid action. Use: activate, deactivate, or delete' }, { status: 400 });
+    return NextResponse.json({ error: 'Invalid action. Use: activate, deactivate, delete, or change-email' }, { status: 400 });
   } catch (error) {
     console.error('Admin user action error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

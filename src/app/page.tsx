@@ -3727,6 +3727,9 @@ function AdminUsersView() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ userId: string; action: string; userName: string } | null>(null);
+  const [editEmailUser, setEditEmailUser] = useState<{ userId: string; userName: string; currentEmail: string } | null>(null);
+  const [newEmail, setNewEmail] = useState('');
+  const [emailLoading, setEmailLoading] = useState(false);
 
   useEffect(() => { fetchUsers(); }, []);
 
@@ -3756,6 +3759,25 @@ function AdminUsersView() {
     } finally {
       setActionLoading(null);
       setConfirmAction(null);
+    }
+  };
+
+  const handleChangeEmail = async () => {
+    if (!editEmailUser || !newEmail.trim()) return;
+    setEmailLoading(true);
+    try {
+      const result = await apiFetch('/api/admin/users', {
+        method: 'PATCH',
+        body: JSON.stringify({ userId: editEmailUser.userId, action: 'change-email', newEmail: newEmail.trim() }),
+      });
+      toast.success(result.message || 'Email updated');
+      setEditEmailUser(null);
+      setNewEmail('');
+      fetchUsers();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to change email');
+    } finally {
+      setEmailLoading(false);
     }
   };
 
@@ -3817,6 +3839,15 @@ function AdminUsersView() {
                     <Button
                       variant="outline"
                       size="sm"
+                      className="text-blue-600 border-blue-300 hover:bg-blue-50 dark:text-blue-400 dark:border-blue-700 dark:hover:bg-blue-950/40 text-xs"
+                      disabled={actionLoading === u.id}
+                      onClick={() => { setEditEmailUser({ userId: u.id, userName: u.name, currentEmail: u.email }); setNewEmail(u.email); }}
+                    >
+                      <Mail className="h-3 w-3 mr-1" />Edit Email
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       className="text-amber-600 border-amber-300 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-700 dark:hover:bg-amber-950/40 text-xs"
                       disabled={actionLoading === u.id}
                       onClick={() => setConfirmAction({ userId: u.id, action: 'deactivate', userName: u.name })}
@@ -3868,6 +3899,15 @@ function AdminUsersView() {
                     <Button
                       variant="outline"
                       size="sm"
+                      className="text-blue-600 border-blue-300 hover:bg-blue-50 dark:text-blue-400 dark:border-blue-700 dark:hover:bg-blue-950/40 text-xs"
+                      disabled={actionLoading === u.id}
+                      onClick={() => { setEditEmailUser({ userId: u.id, userName: u.name, currentEmail: u.email }); setNewEmail(u.email); }}
+                    >
+                      <Mail className="h-3 w-3 mr-1" />Edit Email
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       className="text-green-600 border-green-300 hover:bg-green-50 dark:text-green-400 dark:border-green-700 dark:hover:bg-green-950/40 text-xs"
                       disabled={actionLoading === u.id}
                       onClick={() => handleAction(u.id, 'activate')}
@@ -3890,6 +3930,62 @@ function AdminUsersView() {
           </CardContent>
         </Card>
       )}
+
+      {/* Change Email Dialog */}
+      <Dialog open={!!editEmailUser} onOpenChange={(v) => { if (!v) { setEditEmailUser(null); setNewEmail(''); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-5 w-5" /> Change Email Address
+            </DialogTitle>
+            <DialogDescription>
+              Change the email for <strong>{editEmailUser?.userName}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Current Email</Label>
+              <div className="px-3 py-2 rounded-md border border-border bg-muted/50 text-sm text-muted-foreground">
+                {editEmailUser?.currentEmail}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="new-email">New Email Address</Label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="new-email"
+                  type="email"
+                  placeholder="new@email.com"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  className="pl-10 h-12"
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleChangeEmail(); }}
+                />
+              </div>
+            </div>
+            <div className="rounded-lg border border-blue-200 dark:border-blue-800/40 bg-blue-50 dark:bg-blue-950/30 p-3">
+              <p className="text-xs text-blue-700 dark:text-blue-300 flex items-start gap-2">
+                <Info className="h-4 w-4 shrink-0 mt-0.5" />
+                The user will need to log in with the new email address. Their password remains unchanged.
+              </p>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => { setEditEmailUser(null); setNewEmail(''); }} disabled={emailLoading}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleChangeEmail}
+              disabled={emailLoading || !newEmail.trim() || newEmail.trim() === editEmailUser?.currentEmail}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              {emailLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Mail className="h-4 w-4 mr-2" />}
+              Update Email
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Confirm Action Dialog */}
       <AlertDialog open={!!confirmAction} onOpenChange={(v) => { if (!v) setConfirmAction(null); }}>
