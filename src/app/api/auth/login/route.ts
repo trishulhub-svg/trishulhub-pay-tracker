@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { createClient } from '@libsql/client';
 import { hashPassword } from '@/lib/auth';
 import { createSessionToken } from '@/lib/session';
 
@@ -11,29 +11,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Email and password are required' }, { status: 400 });
     }
 
-    console.log('[LOGIN] Attempt for:', email);
+    // Connect directly to Turso (bypassing db.ts interface to test)
+    const url = process.env.TURSO_DATABASE_URL;
+    const authToken = process.env.TURSO_AUTH_TOKEN;
 
-    const user = await db.user.findUnique({ where: { email } });
+    if (!url || !authToken) {
+      return NextResponse.json({ error: 'Database not configured' }, { status: 500 });
+    }
+
+    const client = createClient({ url, authToken });
+    const r = await client.execute({ sql: 'SELECT * FROM User WHERE email = ?', args: [email] });
+    const user = r.rows[0] as any || null;
 
     if (!user) {
-      console.log('[LOGIN] User not found:', email);
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
-    console.log('[LOGIN] User found:', user.id, user.email, 'role:', user.role);
-    console.log('[LOGIN] Stored password type:', typeof user.password, 'length:', user.password?.length);
-
-    // Direct hash comparison
+    // Verify password
     const computedHash = await hashPassword(password);
     const storedHash = user.password;
 
-    console.log('[LOGIN] Computed hash:', computedHash.substring(0, 20) + '...');
-    console.log('[LOGIN] Stored hash:  ', storedHash?.substring(0, 20) + '...');
-    console.log('[LOGIN] Hash match:', computedHash === storedHash);
-
-    const isValid = computedHash === storedHash;
-    if (!isValid) {
-      console.log('[LOGIN] Password mismatch for:', email);
+    if (computedHash !== storedHash) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
@@ -41,7 +39,7 @@ export async function POST(request: NextRequest) {
       id: user.id,
       email: user.email,
       name: user.name,
-      isPremium: user.isPremium === 1 ? true : user.isPremium, // Handle SQLite 0/1
+      isPremium: user.isPremium === 1 ? true : user.isPremium,
       referralCode: user.referralCode,
       role: user.role,
     };
@@ -57,11 +55,10 @@ export async function POST(request: NextRequest) {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24, // 24 hours
+      maxAge: 60 * 60 * 24,
       path: '/',
     });
 
-    console.log('[LOGIN] Success for:', email);
     return response;
   } catch (error) {
     console.error('Login error:', error);
