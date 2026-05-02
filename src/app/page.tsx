@@ -3360,12 +3360,12 @@ function SmtpSettingsView() {
   return (
     <div className="space-y-4">
       {/* Info banner */}
-      <div className="rounded-lg border border-blue-200 dark:border-blue-700/50 bg-blue-50 dark:bg-blue-950/40 p-4">
+      <div className="rounded-lg border border-blue-200 dark:border-blue-500/40 bg-blue-50 dark:bg-blue-950/60 p-4">
         <div className="flex gap-3">
-          <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+          <Info className="h-5 w-5 text-blue-600 dark:text-blue-300 shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <p className="text-sm font-semibold text-blue-900 dark:text-blue-100">Brevo SMTP Configuration</p>
-            <p className="text-xs text-blue-800 dark:text-blue-300 leading-relaxed">
+            <p className="text-sm font-semibold text-blue-900 dark:text-blue-200">Brevo SMTP Configuration</p>
+            <p className="text-xs text-blue-700 dark:text-blue-400 leading-relaxed">
               These credentials are used to send OTP verification and password reset emails.
               Settings saved here take priority over environment variables. Values are stored securely in the database.
             </p>
@@ -3448,12 +3448,12 @@ function SmtpSettingsView() {
       </Card>
 
       {/* Security note */}
-      <div className="rounded-lg border border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-950/40 p-4">
+      <div className="rounded-lg border border-amber-200 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-950/60 p-4">
         <div className="flex gap-3">
-          <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-300 shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">Security Notice</p>
-            <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+            <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">Security Notice</p>
+            <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
               Your API key is stored encrypted in the database and masked in the UI. Only enter a new value when you want to update it.
               If you leave the API Key field blank, the current saved value (or environment variable) will continue to be used.
             </p>

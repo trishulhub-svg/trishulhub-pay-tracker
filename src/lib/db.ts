@@ -68,48 +68,67 @@ function toBool(val: any): boolean {
   return val === 1 || val === true
 }
 
-// Helper to convert JS values for SQL parameters (boolean → 0/1)
+// Helper to convert JS values for SQL parameters
+// - boolean → 0/1 (SQLite doesn't have native boolean)
+// - Date → ISO string (@libsql/client doesn't support Date objects)
 function toSqlValue(val: any): any {
   if (val === true) return 1
   if (val === false) return 0
+  if (val instanceof Date) return val.toISOString()
   return val
 }
 
 // Helper to process where conditions into SQL conditions and values
-// Handles: null, { gte }, { lte }, { lt }, { not }, { contains }, { in }, and plain values
+// Handles: null, { gte }, { lte }, { lt }, { gt }, { not }, { contains }, { in }, and plain values
+// IMPORTANT: Supports MULTIPLE operators on the same field, e.g. { gte: x, lt: y }
 function buildWhereConditions(where: any, colPrefix: string = ''): { conditions: string[]; values: any[] } {
   const conditions: string[] = []
   const values: any[] = []
   if (!where) return { conditions, values }
-  
+
   for (const [key, val] of Object.entries(where)) {
     const col = colPrefix ? `${colPrefix}${key}` : key
+
     if (val === null) {
       conditions.push(`${col} IS NULL`)
-    } else if (val && typeof val === 'object' && 'in' in val) {
-      const placeholders = (val.in as any[]).map(() => '?').join(', ')
-      conditions.push(`${col} IN (${placeholders})`)
-      values.push(...(val.in as any[]).map(toSqlValue))
-    } else if (val && typeof val === 'object' && 'gte' in val) {
-      conditions.push(`${col} >= ?`)
-      values.push(toSqlValue(val.gte))
-    } else if (val && typeof val === 'object' && 'lte' in val) {
-      conditions.push(`${col} <= ?`)
-      values.push(toSqlValue(val.lte))
-    } else if (val && typeof val === 'object' && 'lt' in val) {
-      conditions.push(`${col} < ?`)
-      values.push(toSqlValue(val.lt))
-    } else if (val && typeof val === 'object' && 'not' in val) {
-      if (val.not === null) {
-        conditions.push(`${col} IS NOT NULL`)
-      } else {
-        conditions.push(`${col} != ?`)
-        values.push(toSqlValue(val.not))
+    } else if (val && typeof val === 'object' && !Array.isArray(val) &&
+        ('gte' in val || 'lte' in val || 'lt' in val || 'gt' in val || 'not' in val || 'contains' in val || 'in' in val)) {
+      // Handle operator object — may contain MULTIPLE operators
+      if ('in' in val) {
+        const placeholders = (val.in as any[]).map(() => '?').join(', ')
+        conditions.push(`${col} IN (${placeholders})`)
+        values.push(...(val.in as any[]).map(toSqlValue))
       }
-    } else if (val && typeof val === 'object' && 'contains' in val) {
-      conditions.push(`${col} LIKE ?`)
-      values.push(`%${val.contains}%`)
+      if ('gte' in val) {
+        conditions.push(`${col} >= ?`)
+        values.push(toSqlValue(val.gte))
+      }
+      if ('gt' in val) {
+        conditions.push(`${col} > ?`)
+        values.push(toSqlValue(val.gt))
+      }
+      if ('lte' in val) {
+        conditions.push(`${col} <= ?`)
+        values.push(toSqlValue(val.lte))
+      }
+      if ('lt' in val) {
+        conditions.push(`${col} < ?`)
+        values.push(toSqlValue(val.lt))
+      }
+      if ('not' in val) {
+        if (val.not === null) {
+          conditions.push(`${col} IS NOT NULL`)
+        } else {
+          conditions.push(`${col} != ?`)
+          values.push(toSqlValue(val.not))
+        }
+      }
+      if ('contains' in val) {
+        conditions.push(`${col} LIKE ?`)
+        values.push(`%${val.contains}%`)
+      }
     } else {
+      // Plain value equality
       conditions.push(`${col} = ?`)
       values.push(toSqlValue(val))
     }
@@ -143,6 +162,31 @@ function mapUserRow(row: any): any {
     isPremium: toBool(row.isPremium),
     emailVerified: toBool(row.emailVerified),
     termsAccepted: toBool(row.termsAccepted),
+  }
+}
+
+// Helper to map a PaymentRecord row from libsql (ensures numeric fields are numbers)
+function mapPaymentRecordRow(row: any): any {
+  if (!row) return null
+  return {
+    ...row,
+    month: Number(row.month),
+    year: Number(row.year),
+    totalExpected: Number(row.totalExpected || 0),
+    totalReceived: Number(row.totalReceived || 0),
+    totalHMRC: Number(row.totalHMRC || 0),
+    totalDue: Number(row.totalDue || 0),
+    workedHours: Number(row.workedHours || 0),
+  }
+}
+
+// Helper to map a Shift row from libsql (ensures numeric fields are numbers)
+function mapShiftRow(row: any): any {
+  if (!row) return null
+  return {
+    ...row,
+    breakMinutes: Number(row.breakMinutes || 0),
+    totalHours: Number(row.totalHours || 0),
   }
 }
 
@@ -414,7 +458,8 @@ export const paymentRecord = {
       }
 
       if (!row) return null
-      return { ...row, company: { id: row['company.id'], name: row['company.name'] } }
+      const mapped = mapPaymentRecordRow(row)
+      return { ...mapped, company: { id: row['company.id'], name: row['company.name'] } }
     }
     const prisma = getPrismaClient()
     return prisma.paymentRecord.findUnique({ where, include: { company: { select: { id: true, name: true } } } })
@@ -429,10 +474,10 @@ export const paymentRecord = {
         : `SELECT pr.*, c.name as "company.name", c.id as "company.id" FROM PaymentRecord pr JOIN Company c ON pr.companyId = c.id`
       sql += buildOrderBy(args?.orderBy, 'pr.')
       const r = await client.execute({ sql, args: values })
-      return r.rows.map((row: any) => ({
-        ...row,
-        company: { id: row['company.id'], name: row['company.name'] },
-      })) as any[]
+      return r.rows.map((row: any) => {
+        const mapped = mapPaymentRecordRow(row)
+        return { ...mapped, company: { id: row['company.id'], name: row['company.name'] } }
+      }) as any[]
     }
     const prisma = getPrismaClient()
     return prisma.paymentRecord.findMany(args as any)
@@ -513,7 +558,8 @@ export const shift = {
       })
       const row = r.rows[0] as any
       if (!row) return null
-      return { ...row, company: { id: row['company.id'], name: row['company.name'] } }
+      const mapped = mapShiftRow(row)
+      return { ...mapped, company: { id: row['company.id'], name: row['company.name'] } }
     }
     const prisma = getPrismaClient()
     return prisma.shift.findUnique({ where, include: { company: { select: { id: true, name: true } } } })
@@ -528,10 +574,10 @@ export const shift = {
         : `SELECT s.*, c.name as "company.name", c.id as "company.id" FROM Shift s JOIN Company c ON s.companyId = c.id`
       sql += buildOrderBy(args?.orderBy, 's.')
       const r = await client.execute({ sql, args: values })
-      return r.rows.map((row: any) => ({
-        ...row,
-        company: { id: row['company.id'], name: row['company.name'] },
-      })) as any[]
+      return r.rows.map((row: any) => {
+        const mapped = mapShiftRow(row)
+        return { ...mapped, company: { id: row['company.id'], name: row['company.name'] } }
+      }) as any[]
     }
     const prisma = getPrismaClient()
     return prisma.shift.findMany(args as any)
