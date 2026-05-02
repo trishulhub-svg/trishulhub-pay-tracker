@@ -12,8 +12,15 @@ export async function GET() {
     // Get fresh user data from DB in case isPremium or role changed
     const freshUser = await db.user.findUnique({
       where: { id: sessionUser.id },
-      select: { isPremium: true, referralCode: true, name: true, email: true, role: true },
+      select: { isPremium: true, referralCode: true, name: true, email: true, role: true, deactivated: true },
     });
+
+    // If user was deactivated, force logout
+    if (freshUser?.deactivated) {
+      const response = NextResponse.json({ error: 'Account deactivated' }, { status: 401 });
+      response.cookies.set('session', '', { maxAge: 0, path: '/' });
+      return response;
+    }
 
     const user = {
       id: sessionUser.id,

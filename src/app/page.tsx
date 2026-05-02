@@ -905,7 +905,28 @@ function SignupForm({
         body: JSON.stringify({ email, code: otpCode, type: 'SIGNUP' }),
       });
       setOtpVerified(true);
-      toast.success('Email verified successfully!');
+      toast.success('Email verified! Creating your account...');
+      // Auto-submit: immediately create the account after OTP verification
+      if (termsAccepted) {
+        try {
+          const data = await apiFetch('/api/auth/signup', {
+            method: 'POST',
+            body: JSON.stringify({
+              name, email, password,
+              referralCode: referralCode || undefined,
+              termsAccepted,
+              otpCode,
+            }),
+          });
+          setUser(data.user);
+          setStep(3);
+          toast.success('Account created successfully!');
+        } catch (signupErr: unknown) {
+          toast.error(signupErr instanceof Error ? signupErr.message : 'Signup failed');
+        }
+      } else {
+        toast.error('Please accept the Terms and Conditions to continue');
+      }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Invalid code');
     } finally {
@@ -2427,6 +2448,29 @@ function ShiftsView() {
 
   if (loading) return <LoadingSkeleton />;
 
+  // No companies yet - show prompt to add one first
+  if (companies.length === 0) {
+    return (
+      <div className="p-4 md:p-6 md:ml-64 max-w-6xl overflow-x-hidden">
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="w-20 h-20 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center mb-4">
+            <Building2 className="h-10 w-10 text-blue-600 dark:text-blue-400" />
+          </div>
+          <h2 className="text-xl font-bold text-foreground mb-2">No Companies Yet</h2>
+          <p className="text-muted-foreground mb-6 max-w-sm">
+            You need to add at least one company before you can track shifts. Add your first company to get started.
+          </p>
+          <Button
+            onClick={() => setCurrentView('add-company')}
+            className="bg-gradient-to-r from-blue-600 to-green-600 text-white"
+          >
+            <Plus className="h-4 w-4 mr-2" /> Add Your First Company
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 md:p-6 md:ml-64 space-y-4 max-w-6xl overflow-x-hidden">
       <div className="flex items-center justify-between">
@@ -3160,7 +3204,7 @@ function SettingsView({ user, onLogout, theme, setTheme }: { user: SessionUser; 
 // ADMIN VIEW
 // ============================================================
 function AdminView() {
-  const [adminTab, setAdminTab] = useState<'stats' | 'smtp'>('stats');
+  const [adminTab, setAdminTab] = useState<'stats' | 'smtp' | 'users'>('stats');
   const [data, setData] = useState<AdminData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -3205,6 +3249,14 @@ function AdminView() {
           }`}
         >
           <Mail className="h-4 w-4" /> SMTP Settings
+        </button>
+        <button
+          onClick={() => setAdminTab('users')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            adminTab === 'users' ? 'bg-card text-foreground shadow-sm border border-border' : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Users className="h-4 w-4" /> Users
         </button>
       </div>
 
@@ -3294,6 +3346,211 @@ function AdminView() {
 
       {/* SMTP Settings Tab */}
       {adminTab === 'smtp' && <SmtpSettingsView />}
+
+      {/* Users Management Tab */}
+      {adminTab === 'users' && <AdminUsersView />}
+    </div>
+  );
+}
+
+// ============================================================
+// ADMIN USERS VIEW (inside Admin tab)
+// ============================================================
+function AdminUsersView() {
+  const [users, setUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ userId: string; action: string; userName: string } | null>(null);
+
+  useEffect(() => { fetchUsers(); }, []);
+
+  const fetchUsers = async () => {
+    setLoading(true);
+    try {
+      const data = await apiFetch('/api/admin/users');
+      setUsers(data.users);
+    } catch {
+      toast.error('Failed to load users');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAction = async (userId: string, action: string) => {
+    setActionLoading(userId);
+    try {
+      const result = await apiFetch('/api/admin/users', {
+        method: 'PATCH',
+        body: JSON.stringify({ userId, action }),
+      });
+      toast.success(result.message || 'Action completed');
+      fetchUsers();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Action failed');
+    } finally {
+      setActionLoading(null);
+      setConfirmAction(null);
+    }
+  };
+
+  if (loading) return <LoadingSkeleton />;
+
+  const activeUsers = users.filter((u) => !u.deactivated);
+  const deactivatedUsers = users.filter((u) => u.deactivated);
+
+  return (
+    <div className="space-y-4">
+      {/* Summary */}
+      <div className="grid grid-cols-3 gap-3">
+        <Card className="border-border">
+          <CardContent className="p-4 text-center">
+            <p className="text-2xl font-bold text-foreground">{users.length}</p>
+            <p className="text-xs text-muted-foreground">Total Users</p>
+          </CardContent>
+        </Card>
+        <Card className="border-border">
+          <CardContent className="p-4 text-center">
+            <p className="text-2xl font-bold text-green-600 dark:text-green-400">{activeUsers.length}</p>
+            <p className="text-xs text-muted-foreground">Active</p>
+          </CardContent>
+        </Card>
+        <Card className="border-border">
+          <CardContent className="p-4 text-center">
+            <p className="text-2xl font-bold text-red-600 dark:text-red-400">{deactivatedUsers.length}</p>
+            <p className="text-xs text-muted-foreground">Deactivated</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Active Users */}
+      {activeUsers.length > 0 && (
+        <Card className="border-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Users className="h-4 w-4" /> Active Users ({activeUsers.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {activeUsers.map((u) => (
+                <div key={u.id} className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-green-600 flex items-center justify-center shrink-0">
+                      <span className="text-sm font-bold text-white">{u.name.charAt(0).toUpperCase()}</span>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-foreground truncate">{u.name}</p>
+                        {u.role === 'ADMIN' && <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 text-[10px]"><Shield className="h-3 w-3 mr-0.5" /> Admin</Badge>}
+                        {u.isPremium && <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 text-[10px]"><Star className="h-3 w-3 mr-0.5" /> PRO</Badge>}
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-amber-600 border-amber-300 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-700 dark:hover:bg-amber-950/40"
+                      disabled={actionLoading === u.id}
+                      onClick={() => setConfirmAction({ userId: u.id, action: 'deactivate', userName: u.name })}
+                    >
+                      {actionLoading === u.id ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Deactivate'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-red-600 border-red-300 hover:bg-red-50 dark:text-red-400 dark:border-red-700 dark:hover:bg-red-950/40"
+                      disabled={actionLoading === u.id}
+                      onClick={() => setConfirmAction({ userId: u.id, action: 'delete', userName: u.name })}
+                    >
+                      {actionLoading === u.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <span className="flex items-center gap-1"><Trash2 className="h-3 w-3" />Delete</span>}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Deactivated Users */}
+      {deactivatedUsers.length > 0 && (
+        <Card className="border-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2 text-red-600 dark:text-red-400">
+              <AlertCircle className="h-4 w-4" /> Deactivated Users ({deactivatedUsers.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {deactivatedUsers.map((u) => (
+                <div key={u.id} className="flex items-center justify-between p-3 rounded-lg border border-red-200 dark:border-red-800/40 bg-red-50/50 dark:bg-red-950/20">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0">
+                      <span className="text-sm font-bold text-muted-foreground">{u.name.charAt(0).toUpperCase()}</span>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-foreground truncate">{u.name}</p>
+                        <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 text-[10px]">Deactivated</Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-green-600 border-green-300 hover:bg-green-50 dark:text-green-400 dark:border-green-700 dark:hover:bg-green-950/40"
+                      disabled={actionLoading === u.id}
+                      onClick={() => handleAction(u.id, 'activate')}
+                    >
+                      {actionLoading === u.id ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Reactivate'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-red-600 border-red-300 hover:bg-red-50 dark:text-red-400 dark:border-red-700 dark:hover:bg-red-950/40"
+                      disabled={actionLoading === u.id}
+                      onClick={() => setConfirmAction({ userId: u.id, action: 'delete', userName: u.name })}
+                    >
+                      {actionLoading === u.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <span className="flex items-center gap-1"><Trash2 className="h-3 w-3" />Delete</span>}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Confirm Action Dialog */}
+      <AlertDialog open={!!confirmAction} onOpenChange={(v) => { if (!v) setConfirmAction(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmAction?.action === 'delete' ? 'Permanently Delete User?' : 'Deactivate User?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmAction?.action === 'delete'
+                ? `This will permanently delete "${confirmAction?.userName}" and all their data (companies, records, shifts). This action cannot be undone.`
+                : `This will deactivate "${confirmAction?.userName}". They will not be able to log in until reactivated.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className={confirmAction?.action === 'delete' ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-amber-600 hover:bg-amber-700 text-white'}
+              onClick={() => {
+                if (confirmAction) handleAction(confirmAction.userId, confirmAction.action);
+              }}
+            >
+              {confirmAction?.action === 'delete' ? 'Delete Permanently' : 'Deactivate'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

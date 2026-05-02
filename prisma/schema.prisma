@@ -21,6 +21,7 @@ model User {
   termsAccepted    Boolean        @default(false)
   termsAcceptedAt  DateTime?
   emailVerified    Boolean        @default(false)
+  deactivated      Boolean        @default(false)
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
   companies        Company[]

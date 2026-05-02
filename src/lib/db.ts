@@ -162,6 +162,7 @@ function mapUserRow(row: any): any {
     isPremium: toBool(row.isPremium),
     emailVerified: toBool(row.emailVerified),
     termsAccepted: toBool(row.termsAccepted),
+    deactivated: toBool(row.deactivated),
   }
 }
 

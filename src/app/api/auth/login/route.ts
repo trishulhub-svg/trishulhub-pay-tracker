@@ -26,6 +26,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
+    // Check if user is deactivated
+    if (user.deactivated) {
+      return NextResponse.json({ error: 'Your account has been deactivated. Contact support for assistance.' }, { status: 403 });
+    }
+
     const sessionUser = {
       id: user.id,
       email: user.email,
