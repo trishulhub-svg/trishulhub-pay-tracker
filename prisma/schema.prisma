@@ -1,0 +1,42 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String         @id @default(cuid())
+  email          String         @unique
+  name           String
+  password       String
+  role           String         @default("EMPLOYEE")
+  isActive       Boolean        @default(true)
+  phone          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  paymentRecords PaymentRecord[]
+}
+
+model PaymentRecord {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  month         Int
+  year          Int
+  totalExpected Float    @default(0)
+  totalReceived Float    @default(0)
+  totalHMRC     Float    @default(0)
+  totalDue      Float    @default(0)
+  workedHours   Float    @default(0)
+  status        String   @default("PENDING")
+  notes         String?
+  paySlipUrl    String?
+  paySlipName   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, month, year])
+}
