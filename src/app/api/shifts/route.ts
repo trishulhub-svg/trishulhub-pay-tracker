@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { companyId, date, startTime, endTime, breakMinutes, shiftType, notes } = body;
+    const { companyId, date, startTime, endTime, breakMinutes, shiftType, notes, payRate } = body;
 
     if (!companyId || !date || !startTime || !endTime) {
       return NextResponse.json({ error: 'Company, date, start time, and end time are required' }, { status: 400 });
@@ -72,6 +72,9 @@ export async function POST(request: NextRequest) {
     if (!company || company.userId !== user.id) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
+
+    // Use provided payRate, or fall back to company's payRate
+    const shiftPayRate = payRate !== undefined ? (parseFloat(payRate) || 0) : (company.payRate || 0);
 
     // Calculate total hours
     const [startH, startM] = startTime.split(':').map(Number);
@@ -97,6 +100,7 @@ export async function POST(request: NextRequest) {
         breakMinutes: breakMinutes || 0,
         totalHours: Math.round(totalHours * 100) / 100,
         shiftType: shiftType || 'REGULAR',
+        payRate: shiftPayRate,
         notes: notes || null,
       },
       include: {

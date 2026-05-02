@@ -13,11 +13,8 @@ export async function PUT(
     }
 
     const { id } = await params;
-    const { name } = await request.json();
-
-    if (!name || !name.trim()) {
-      return NextResponse.json({ error: 'Company name is required' }, { status: 400 });
-    }
+    const body = await request.json();
+    const { name, payRate, effectiveFrom } = body;
 
     // Verify ownership
     const company = await db.company.findUnique({ where: { id } });
@@ -25,18 +22,40 @@ export async function PUT(
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
 
-    // Check for duplicate name
-    const existingWithName = await db.company.findUnique({
-      where: { userId_name: { userId: user.id, name: name.trim() } },
-    });
+    const updateData: any = {};
+    if (name !== undefined) {
+      if (!name.trim()) {
+        return NextResponse.json({ error: 'Company name is required' }, { status: 400 });
+      }
+      // Check for duplicate name
+      const existingWithName = await db.company.findUnique({
+        where: { userId_name: { userId: user.id, name: name.trim() } },
+      });
+      if (existingWithName && existingWithName.id !== id) {
+        return NextResponse.json({ error: 'A company with this name already exists' }, { status: 409 });
+      }
+      updateData.name = name.trim();
+    }
 
-    if (existingWithName && existingWithName.id !== id) {
-      return NextResponse.json({ error: 'A company with this name already exists' }, { status: 409 });
+    if (payRate !== undefined) {
+      const newPayRate = parseFloat(payRate) || 0;
+      updateData.payRate = newPayRate;
+
+      // If effectiveFrom is provided, create a pay rate history entry
+      if (effectiveFrom && newPayRate > 0) {
+        await db.payRateHistory.create({
+          data: {
+            companyId: id,
+            payRate: newPayRate,
+            effectiveFrom: effectiveFrom, // YYYY-MM-DD format
+          },
+        });
+      }
     }
 
     const updatedCompany = await db.company.update({
       where: { id },
-      data: { name: name.trim() },
+      data: updateData,
     });
 
     return NextResponse.json({ company: updatedCompany });

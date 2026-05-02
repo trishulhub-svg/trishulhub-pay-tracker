@@ -40,6 +40,7 @@ interface Company {
   id: string;
   name: string;
   userId: string;
+  payRate: number;
   createdAt: string;
   _count?: { paymentRecords: number };
 }
@@ -72,6 +73,7 @@ interface Shift {
   breakMinutes: number;
   totalHours: number;
   shiftType: string;
+  payRate: number;
   notes: string | null;
   company: { id: string; name: string };
 }
@@ -583,13 +585,13 @@ export default function TrishulHubPayTracker() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
-          <div className="flex items-center gap-3 animate-pulse">
-            <Image src="/logo.png" alt="" width={44} height={44} className="shrink-0" priority />
-            <div className="text-left">
+          <div className="flex flex-col items-center gap-2 animate-pulse">
+            <Image src="/logo.png" alt="" width={56} height={56} className="shrink-0" priority />
+            <div className="text-center">
               <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-green-600 bg-clip-text text-transparent leading-tight">
                 TrishulHub
               </h1>
-              <p className="text-xs text-muted-foreground font-medium -mt-0.5">Pay Tracker</p>
+              <p className="text-xs text-muted-foreground font-semibold -mt-0.5">Pay Tracker</p>
             </div>
           </div>
           <p className="text-muted-foreground text-sm">Loading...</p>
@@ -635,7 +637,7 @@ export default function TrishulHubPayTracker() {
               {currentView === 'edit-record' && <RecordFormView isEdit />}
               {currentView === 'companies' && <CompaniesView />}
               {currentView === 'add-company' && <CompanyFormView />}
-              {currentView === 'shifts' && <ShiftsView />}
+              {currentView === 'shifts' && <ShiftsView user={user} />}
               {currentView === 'referrals' && <ReferralsView user={user} />}
               {currentView === 'settings' && <SettingsView user={user} onLogout={handleLogout} theme={theme} setTheme={setTheme} />}
               {currentView === 'admin' && <AdminView />}
@@ -672,18 +674,16 @@ function AuthView({
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="text-center mb-8"
+          className="flex flex-col items-center mb-8"
         >
-          <div className="flex items-center justify-center gap-3 mb-3">
-            <Image src="/logo.png" alt="" width={48} height={48} className="shrink-0" priority />
-            <div className="text-left">
-              <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-green-600 bg-clip-text text-transparent leading-tight">
-                TrishulHub
-              </h1>
-              <p className="text-xs text-muted-foreground font-medium -mt-0.5">Pay Tracker</p>
-            </div>
+          <Image src="/logo.png" alt="" width={72} height={72} className="shrink-0 mb-3" priority />
+          <div className="text-center">
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-green-600 bg-clip-text text-transparent leading-tight">
+              TrishulHub
+            </h1>
+            <p className="text-sm text-muted-foreground font-semibold tracking-wide mt-0.5">Pay Tracker</p>
           </div>
-          <p className="text-muted-foreground text-sm">Track your salary payments — Free forever</p>
+          <p className="text-muted-foreground text-sm mt-2">Track your salary payments — Free forever</p>
         </motion.div>
 
         <AnimatePresence mode="wait">
@@ -1432,10 +1432,15 @@ function MobileBottomNav({
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
+  // Add admin nav item for admin users on mobile
+  if (user.role === 'ADMIN') {
+    navItems.push({ id: 'admin', label: 'Admin', icon: Shield });
+  }
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-md border-t border-border md:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
       <div className="flex items-center justify-around h-16 px-1">
-        {navItems.map((item) => {
+        {navItems.slice(0, 5).map((item) => {
           const Icon = item.icon;
           const isActive = currentView === item.id;
           return (
@@ -1451,6 +1456,18 @@ function MobileBottomNav({
             </button>
           );
         })}
+        {/* Admin button - compact, separate from main nav if present */}
+        {user.role === 'ADMIN' && (
+          <button
+            onClick={() => setCurrentView('admin')}
+            className={`flex flex-col items-center justify-center gap-0.5 min-w-[36px] min-h-[44px] py-1 transition-colors rounded-lg ${
+              currentView === 'admin' ? 'text-purple-600 dark:text-purple-400' : 'text-muted-foreground'
+            }`}
+          >
+            <Shield className="h-4 w-4" />
+            <span className="text-[9px] font-medium">Admin</span>
+          </button>
+        )}
       </div>
     </nav>
   );
@@ -2158,6 +2175,10 @@ function CompaniesView() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
+  const [updatePayRateId, setUpdatePayRateId] = useState<string | null>(null);
+  const [newPayRate, setNewPayRate] = useState('');
+  const [effectiveFrom, setEffectiveFrom] = useState('');
+  const [payRateLoading, setPayRateLoading] = useState(false);
 
   useEffect(() => { fetchCompanies(); }, []);
 
@@ -2190,6 +2211,30 @@ function CompaniesView() {
       fetchCompanies();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to update');
+    }
+  };
+
+  const handleUpdatePayRate = async () => {
+    if (!updatePayRateId) return;
+    setPayRateLoading(true);
+    try {
+      const body: any = { payRate: parseFloat(newPayRate) || 0 };
+      if (effectiveFrom) {
+        body.effectiveFrom = effectiveFrom;
+      }
+      await apiFetch(`/api/companies/${updatePayRateId}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+      toast.success(effectiveFrom ? `Pay rate will change from ${effectiveFrom}` : 'Pay rate updated');
+      setUpdatePayRateId(null);
+      setNewPayRate('');
+      setEffectiveFrom('');
+      fetchCompanies();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update pay rate');
+    } finally {
+      setPayRateLoading(false);
     }
   };
 
@@ -2232,23 +2277,35 @@ function CompaniesView() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {companies.map((c) => (
             <Card key={c.id} className="border-border hover:shadow-sm transition-shadow">
-              <CardContent className="p-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-600 to-green-600 flex items-center justify-center">
-                    <Building2 className="h-5 w-5 text-white" />
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-600 to-green-600 flex items-center justify-center">
+                      <Building2 className="h-5 w-5 text-white" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-foreground">{c.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs text-muted-foreground">{c._count?.paymentRecords || 0} records</p>
+                        {c.payRate > 0 && (
+                          <Badge variant="outline" className="text-[10px]">
+                            <PoundSterling className="h-3 w-3 mr-0.5" />{c.payRate.toFixed(2)}/hr
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-medium text-foreground">{c.name}</p>
-                    <p className="text-xs text-muted-foreground">{c._count?.paymentRecords || 0} records</p>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" onClick={() => { setUpdatePayRateId(c.id); setNewPayRate(c.payRate.toString()); setEffectiveFrom(''); }} className="h-10 w-10" title="Update pay rate">
+                      <PoundSterling className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => handleEdit(c)} className="h-10 w-10">
+                      <Edit3 className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => setDeleteId(c.id)} className="h-10 w-10 text-destructive">
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
-                </div>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="icon" onClick={() => handleEdit(c)} className="h-10 w-10">
-                    <Edit3 className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" onClick={() => setDeleteId(c.id)} className="h-10 w-10 text-destructive">
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -2256,7 +2313,7 @@ function CompaniesView() {
         </div>
       )}
 
-      {/* Edit dialog */}
+      {/* Edit name dialog */}
       <Dialog open={!!editId} onOpenChange={() => setEditId(null)}>
         <DialogContent>
           <DialogHeader>
@@ -2271,6 +2328,37 @@ function CompaniesView() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditId(null)}>Cancel</Button>
             <Button onClick={handleUpdate} className="bg-gradient-to-r from-blue-600 to-green-600 text-white">Update</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Update pay rate dialog */}
+      <Dialog open={!!updatePayRateId} onOpenChange={(v) => { if (!v) { setUpdatePayRateId(null); setNewPayRate(''); setEffectiveFrom(''); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Update Pay Rate</DialogTitle>
+            <DialogDescription>Set the new hourly pay rate for this company. You can choose when it takes effect.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>New Hourly Pay Rate (GBP)</Label>
+              <div className="relative">
+                <PoundSterling className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input type="number" step="0.01" min="0" value={newPayRate} onChange={(e) => setNewPayRate(e.target.value)} className="pl-10 h-12" placeholder="e.g. 12.50" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Effective From (Optional)</Label>
+              <Input type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} className="h-12" />
+              <p className="text-xs text-muted-foreground">Leave blank to apply immediately. If set, this rate will apply from the selected date.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setUpdatePayRateId(null); setNewPayRate(''); setEffectiveFrom(''); }}>Cancel</Button>
+            <Button onClick={handleUpdatePayRate} disabled={payRateLoading} className="bg-gradient-to-r from-blue-600 to-green-600 text-white">
+              {payRateLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <PoundSterling className="h-4 w-4 mr-2" />}
+              {effectiveFrom ? `Apply from ${effectiveFrom}` : 'Update Pay Rate'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2297,8 +2385,11 @@ function CompaniesView() {
 // ============================================================
 function CompanyFormView() {
   const { setCurrentView } = useAppStore();
+  const user = useAppStore((s) => s.user);
   const [name, setName] = useState('');
+  const [payRate, setPayRate] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPremiumPopup, setShowPremiumPopup] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2307,12 +2398,17 @@ function CompanyFormView() {
     try {
       await apiFetch('/api/companies', {
         method: 'POST',
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, payRate: parseFloat(payRate) || 0 }),
       });
       toast.success('Company added!');
       setCurrentView('companies');
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to add company');
+      const msg = err instanceof Error ? err.message : 'Failed to add company';
+      if (msg.includes('Premium required')) {
+        setShowPremiumPopup(true);
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -2336,6 +2432,22 @@ function CompanyFormView() {
                 <Input placeholder="e.g. ABC Solutions Ltd" value={name} onChange={(e) => setName(e.target.value)} className="pl-10 h-12" autoFocus />
               </div>
             </div>
+            <div className="space-y-2">
+              <Label>Hourly Pay Rate (GBP)</Label>
+              <div className="relative">
+                <PoundSterling className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="e.g. 12.50"
+                  value={payRate}
+                  onChange={(e) => setPayRate(e.target.value)}
+                  className="pl-10 h-12"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">Default hourly rate for this company. You can override per shift.</p>
+            </div>
             <div className="flex gap-3">
               <Button type="button" variant="outline" onClick={() => setCurrentView('companies')} className="flex-1 h-12 min-h-[44px]">Cancel</Button>
               <Button type="submit" disabled={loading} className="flex-1 h-12 min-h-[44px] bg-gradient-to-r from-blue-600 to-green-600 text-white">
@@ -2346,6 +2458,7 @@ function CompanyFormView() {
           </form>
         </CardContent>
       </Card>
+      {user && <PremiumFeaturePopup open={showPremiumPopup} onClose={() => setShowPremiumPopup(false)} user={user} />}
     </div>
   );
 }
@@ -2353,12 +2466,19 @@ function CompanyFormView() {
 // ============================================================
 // SHIFTS VIEW (WEEKLY CALENDAR)
 // ============================================================
-function ShiftsView() {
+function ShiftsView({ user }: { user: SessionUser }) {
   const { setCurrentView, setSelectedShiftId } = useAppStore();
   const isMobile = useIsMobile();
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showPremiumPopup, setShowPremiumPopup] = useState(false);
+  const [showRotaDialog, setShowRotaDialog] = useState(false);
+  const [rotaMonth, setRotaMonth] = useState(new Date().getMonth() + 1);
+  const [rotaYear, setRotaYear] = useState(new Date().getFullYear());
+  const [rotaFrom, setRotaFrom] = useState('');
+  const [rotaTo, setRotaTo] = useState('');
+  const [downloading, setDownloading] = useState(false);
   const [weekStart, setWeekStart] = useState<Date>(() => {
     const now = new Date();
     const day = now.getDay();
@@ -2435,6 +2555,55 @@ function ShiftsView() {
     }
   };
 
+  const handleDownloadRota = (isPremium: boolean) => {
+    if (isPremium) {
+      // Premium: show custom date range dialog
+      setShowRotaDialog(true);
+    } else {
+      // Free: download current month
+      setShowRotaDialog(true);
+    }
+  };
+
+  const executeDownload = async () => {
+    setDownloading(true);
+    try {
+      let url: string;
+      if (user.isPremium && rotaFrom && rotaTo) {
+        url = `/api/shifts/rota-pdf?from=${rotaFrom}&to=${rotaTo}`;
+      } else {
+        url = `/api/shifts/rota-pdf?month=${rotaMonth}&year=${rotaYear}`;
+      }
+      const res = await fetch(url);
+      if (!res.ok) {
+        const data = await res.json();
+        if (res.status === 403 && !user.isPremium) {
+          setShowPremiumPopup(true);
+          setShowRotaDialog(false);
+          return;
+        }
+        throw new Error(data.error || 'Download failed');
+      }
+      const html = await res.text();
+      // Open in new window for printing/saving as PDF
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write(html);
+        printWindow.document.close();
+        setTimeout(() => {
+          printWindow.print();
+        }, 500);
+      } else {
+        toast.error('Please allow popups to download the rota');
+      }
+      setShowRotaDialog(false);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to download rota');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   // Weekly summary
   const weekShifts = weekDates.flatMap((d) => getShiftsForDay(d));
   const totalWeekHours = weekShifts.reduce((acc, s) => acc + s.totalHours, 0);
@@ -2473,18 +2642,28 @@ function ShiftsView() {
 
   return (
     <div className="p-4 md:p-6 md:ml-64 space-y-4 max-w-6xl overflow-x-hidden">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-xl font-bold text-foreground">Shifts</h1>
-        <Button
-          onClick={() => {
-            setSelectedShiftId(null);
-            setSelectedDay(new Date());
-          }}
-          className="bg-gradient-to-r from-blue-600 to-green-600 text-white"
-          size="sm"
-        >
-          <Plus className="h-4 w-4 mr-1" /> Add Shift
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleDownloadRota(user.isPremium)}
+            className="min-h-[44px]"
+          >
+            <FileCheck className="h-4 w-4 mr-1" /> Download Rota
+          </Button>
+          <Button
+            onClick={() => {
+              setSelectedShiftId(null);
+              setSelectedDay(new Date());
+            }}
+            className="bg-gradient-to-r from-blue-600 to-green-600 text-white"
+            size="sm"
+          >
+            <Plus className="h-4 w-4 mr-1" /> Add Shift
+          </Button>
+        </div>
       </div>
 
       {/* Week Summary Card */}
@@ -2648,6 +2827,64 @@ function ShiftsView() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Download Rota Dialog */}
+      <Dialog open={showRotaDialog} onOpenChange={setShowRotaDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Download Monthly Rota</DialogTitle>
+            <DialogDescription>
+              {user.isPremium
+                ? 'As a Premium member, you can download any date range.'
+                : 'Free users can download the rota for the last day of the month through the 5th of the next month.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {!user.isPremium ? (
+              <div className="space-y-2">
+                <Label>Select Month</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <Select value={rotaMonth.toString()} onValueChange={(v) => setRotaMonth(parseInt(v))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {MONTHS.map((m, i) => <SelectItem key={i} value={(i + 1).toString()}>{m}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Input type="number" value={rotaYear} onChange={(e) => setRotaYear(parseInt(e.target.value))} className="h-10" />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Date Range</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">From</Label>
+                    <Input type="date" value={rotaFrom} onChange={(e) => setRotaFrom(e.target.value)} className="h-10" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">To</Label>
+                    <Input type="date" value={rotaTo} onChange={(e) => setRotaTo(e.target.value)} className="h-10" />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRotaDialog(false)}>Cancel</Button>
+            <Button onClick={executeDownload} disabled={downloading} className="bg-gradient-to-r from-blue-600 to-green-600 text-white">
+              {downloading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <FileCheck className="h-4 w-4 mr-2" />}
+              Download PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Premium Popup */}
+      <PremiumFeaturePopup
+        open={showPremiumPopup}
+        onClose={() => setShowPremiumPopup(false)}
+        user={user}
+      />
     </div>
   );
 }
@@ -2669,11 +2906,19 @@ function ShiftDaySheet({
   const [endTime, setEndTime] = useState('17:00');
   const [breakMinutes, setBreakMinutes] = useState('30');
   const [shiftType, setShiftType] = useState('REGULAR');
+  const [payRate, setPayRate] = useState('');
+  const [useCustomRate, setUseCustomRate] = useState(false);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Get company pay rate when company changes
+  const selectedCompany = companies.find((c) => c.id === companyId);
+  const companyPayRate = selectedCompany?.payRate || 0;
+
   // Auto-calculate hours
   const totalHours = calculateShiftHours(startTime, endTime, parseInt(breakMinutes) || 0);
+  const effectiveRate = useCustomRate ? (parseFloat(payRate) || 0) : companyPayRate;
+  const shiftEarnings = totalHours * effectiveRate;
 
   const handleSubmit = async () => {
     if (!date || !companyId) { toast.error('Please select a company'); return; }
@@ -2688,6 +2933,7 @@ function ShiftDaySheet({
           endTime,
           breakMinutes: parseInt(breakMinutes) || 0,
           shiftType,
+          payRate: useCustomRate ? (parseFloat(payRate) || 0) : undefined,
           notes: notes || null,
         }),
       });
@@ -2707,6 +2953,8 @@ function ShiftDaySheet({
     setEndTime('17:00');
     setBreakMinutes('30');
     setShiftType('REGULAR');
+    setPayRate('');
+    setUseCustomRate(false);
     setNotes('');
   };
 
@@ -2725,7 +2973,7 @@ function ShiftDaySheet({
             <Select value={companyId} onValueChange={setCompanyId}>
               <SelectTrigger className="h-12"><SelectValue placeholder="Select company" /></SelectTrigger>
               <SelectContent>
-                {companies.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                {companies.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}{c.payRate > 0 ? ` (£${c.payRate.toFixed(2)}/hr)` : ''}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -2757,6 +3005,35 @@ function ShiftDaySheet({
               </SelectContent>
             </Select>
           </div>
+
+          {/* Pay Rate Override */}
+          {companyId && (
+            <div className="space-y-2 rounded-lg border border-border p-3 bg-muted/30">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm">Pay Rate</Label>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Custom rate</span>
+                  <Switch checked={useCustomRate} onCheckedChange={setUseCustomRate} />
+                </div>
+              </div>
+              {useCustomRate ? (
+                <div className="relative">
+                  <PoundSterling className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input type="number" step="0.01" min="0" placeholder="Custom rate" value={payRate} onChange={(e) => setPayRate(e.target.value)} className="pl-10 h-10" />
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {companyPayRate > 0 ? `Using company rate: £${companyPayRate.toFixed(2)}/hr` : 'No company rate set'}
+                </p>
+              )}
+              {effectiveRate > 0 && (
+                <p className="text-xs text-primary font-medium">
+                  Estimated earnings: £{shiftEarnings.toFixed(2)} ({totalHours}h × £{effectiveRate.toFixed(2)})
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label>Notes</Label>
             <Textarea placeholder="Optional notes..." value={notes} onChange={(e) => setNotes(e.target.value)} />
@@ -3718,6 +3995,87 @@ function SmtpSettingsView() {
         </div>
       </div>
     </div>
+  );
+}
+
+// ============================================================
+// PREMIUM FEATURE POPUP
+// ============================================================
+function PremiumFeaturePopup({ open, onClose, user }: { open: boolean; onClose: () => void; user: SessionUser }) {
+  const [copiedCode, setCopiedCode] = useState(false);
+
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(user.referralCode);
+      setCopiedCode(true);
+      toast.success('Referral code copied!');
+      setTimeout(() => setCopiedCode(false), 2000);
+    } catch {
+      toast.error('Failed to copy');
+    }
+  };
+
+  const shareLink = async () => {
+    const link = `${window.location.origin}/?ref=${user.referralCode}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'TrishulHub Pay Tracker',
+          text: `Track your salary payments! Use my referral code: ${user.referralCode}`,
+          url: link,
+        });
+      } catch { /* user cancelled */ }
+    } else {
+      await navigator.clipboard.writeText(link);
+      toast.success('Link copied to clipboard!');
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <div className="mx-auto mb-2">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
+              <Star className="h-8 w-8 text-white" />
+            </div>
+          </div>
+          <DialogTitle className="text-center text-xl">Unlock Premium Features</DialogTitle>
+          <DialogDescription className="text-center">
+            Refer a friend and get Premium for lifetime — free!
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          {/* Premium benefits */}
+          <div className="space-y-2 rounded-lg border border-amber-200 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-950/30 p-4">
+            <h4 className="font-semibold text-amber-900 dark:text-amber-200 text-sm">Premium Benefits</h4>
+            <ul className="space-y-1.5 text-xs text-amber-800 dark:text-amber-300">
+              <li className="flex items-center gap-2"><Check className="h-3 w-3" /> Download shift rota for any date range</li>
+              <li className="flex items-center gap-2"><Check className="h-3 w-3" /> Auto-generated monthly rota PDFs</li>
+              <li className="flex items-center gap-2"><Check className="h-3 w-3" /> Add unlimited companies</li>
+              <li className="flex items-center gap-2"><Check className="h-3 w-3" /> Email notifications for rota ready</li>
+              <li className="flex items-center gap-2"><Check className="h-3 w-3" /> Priority support</li>
+            </ul>
+          </div>
+
+          {/* Referral code */}
+          <div className="text-center space-y-3">
+            <p className="text-sm text-muted-foreground">Share your referral code with a friend. When they sign up, you get Premium!</p>
+            <div className="flex items-center gap-2 p-3 rounded-lg border border-border bg-muted/50">
+              <span className="font-mono text-lg font-bold text-foreground flex-1 text-center">{user.referralCode}</span>
+              <Button variant="outline" size="sm" onClick={copyCode} className="min-h-[44px]">
+                {copiedCode ? <Check className="h-4 w-4 text-green-600 dark:text-green-400" /> : <Copy className="h-4 w-4" />}
+              </Button>
+            </div>
+          </div>
+
+          {/* Share button */}
+          <Button onClick={shareLink} className="w-full h-12 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white">
+            <Share2 className="h-4 w-4 mr-2" /> Share & Unlock Premium
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

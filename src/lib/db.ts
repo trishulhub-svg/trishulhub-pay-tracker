@@ -188,6 +188,25 @@ function mapShiftRow(row: any): any {
     ...row,
     breakMinutes: Number(row.breakMinutes || 0),
     totalHours: Number(row.totalHours || 0),
+    payRate: Number(row.payRate || 0),
+  }
+}
+
+// Helper to map a Company row (ensures numeric fields)
+function mapCompanyRow(row: any): any {
+  if (!row) return null
+  return {
+    ...row,
+    payRate: Number(row.payRate || 0),
+  }
+}
+
+// Helper to map a PayRateHistory row
+function mapPayRateHistoryRow(row: any): any {
+  if (!row) return null
+  return {
+    ...row,
+    payRate: Number(row.payRate || 0),
   }
 }
 
@@ -322,14 +341,14 @@ export const company = {
       const client = getTursoClient()
       if (where.id) {
         const r = await client.execute({ sql: 'SELECT * FROM Company WHERE id = ?', args: [where.id] })
-        return r.rows[0] as any || null
+        return mapCompanyRow(r.rows[0]) || null
       }
       if (where.userId_name) {
         const r = await client.execute({
           sql: 'SELECT * FROM Company WHERE userId = ? AND name = ?',
           args: [where.userId_name.userId, where.userId_name.name],
         })
-        return r.rows[0] as any || null
+        return mapCompanyRow(r.rows[0]) || null
       }
       return null
     }
@@ -346,7 +365,7 @@ export const company = {
         : `SELECT * FROM Company`
       sql += buildOrderBy(args?.orderBy)
       const r = await client.execute({ sql, args: values })
-      const companies = r.rows as any[]
+      const companies = r.rows.map(mapCompanyRow) as any[]
 
       // Support _count.paymentRecords via sub-count queries
       const needsCount = args?.include?._count?.select?.paymentRecords
@@ -393,8 +412,8 @@ export const company = {
       const id = generateId()
       const now = nowISO()
       await client.execute({
-        sql: 'INSERT INTO Company (id, name, userId, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)',
-        args: [id, d.name, d.userId, now, now],
+        sql: 'INSERT INTO Company (id, name, userId, payRate, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)',
+        args: [id, d.name, d.userId, d.payRate ?? 0, now, now],
       })
       return this.findUnique({ where: { id } })
     }
@@ -411,7 +430,7 @@ export const company = {
       for (const [key, val] of Object.entries(d)) {
         if (key === 'updatedAt') continue
         sets.push(`${key} = ?`)
-        values.push(val)
+        values.push(toSqlValue(val))
       }
       values.push(args.where.id)
       await client.execute({ sql: `UPDATE Company SET ${sets.join(', ')} WHERE id = ?`, args: values })
@@ -605,9 +624,9 @@ export const shift = {
       const id = generateId()
       const now = nowISO()
       await client.execute({
-        sql: `INSERT INTO Shift (id, userId, companyId, date, startTime, endTime, breakMinutes, totalHours, shiftType, notes, createdAt, updatedAt)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [id, d.userId, d.companyId, d.date, d.startTime, d.endTime, d.breakMinutes ?? 0, d.totalHours ?? 0, d.shiftType ?? 'REGULAR', d.notes ?? null, now, now],
+        sql: `INSERT INTO Shift (id, userId, companyId, date, startTime, endTime, breakMinutes, totalHours, shiftType, payRate, notes, createdAt, updatedAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [id, d.userId, d.companyId, d.date, d.startTime, d.endTime, d.breakMinutes ?? 0, d.totalHours ?? 0, d.shiftType ?? 'REGULAR', d.payRate ?? 0, d.notes ?? null, now, now],
       })
       return this.findUnique({ where: { id } })
     }
@@ -801,5 +820,54 @@ export const setting = {
   },
 }
 
+// ==================== PAY RATE HISTORY ====================
+export const payRateHistory = {
+  async findMany(args?: { where?: any; orderBy?: any }) {
+    if (useTurso()) {
+      const client = getTursoClient()
+      const { conditions, values } = buildWhereConditions(args?.where)
+      let sql = conditions.length > 0
+        ? `SELECT * FROM PayRateHistory WHERE ${conditions.join(' AND ')}`
+        : `SELECT * FROM PayRateHistory`
+      sql += buildOrderBy(args?.orderBy)
+      const r = await client.execute({ sql, args: values })
+      return r.rows.map(mapPayRateHistoryRow) as any[]
+    }
+    const prisma = getPrismaClient()
+    return prisma.payRateHistory.findMany(args as any)
+  },
+
+  async create(data: { data: any }) {
+    if (useTurso()) {
+      const client = getTursoClient()
+      const d = data.data
+      const id = generateId()
+      const now = nowISO()
+      await client.execute({
+        sql: `INSERT INTO PayRateHistory (id, companyId, payRate, effectiveFrom, createdAt) VALUES (?, ?, ?, ?, ?)`,
+        args: [id, d.companyId, d.payRate, d.effectiveFrom, now],
+      })
+      const r = await client.execute({ sql: 'SELECT * FROM PayRateHistory WHERE id = ?', args: [id] })
+      return mapPayRateHistoryRow(r.rows[0])
+    }
+    const prisma = getPrismaClient()
+    return prisma.payRateHistory.create(data)
+  },
+
+  async deleteMany(args: { where: any }) {
+    if (useTurso()) {
+      const client = getTursoClient()
+      const { conditions, values } = buildWhereConditions(args.where)
+      const sql = conditions.length > 0
+        ? `DELETE FROM PayRateHistory WHERE ${conditions.join(' AND ')}`
+        : `DELETE FROM PayRateHistory`
+      await client.execute({ sql, args: values })
+      return { count: 0 }
+    }
+    const prisma = getPrismaClient()
+    return prisma.payRateHistory.deleteMany(args as any)
+  },
+}
+
 // Export as `db` for backward compatibility with existing code
-export const db = { user, company, paymentRecord, shift, otpCode, setting }
+export const db = { user, company, paymentRecord, shift, otpCode, setting, payRateHistory }

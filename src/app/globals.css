@@ -3,7 +3,9 @@
 
 @source "../../../src";
 
-@custom-variant dark (&:where(.dark, .dark *));
+@custom-variant dark (&:is(.dark *));
+
+@plugin "tailwindcss-animate";
 
 @theme {
   --color-primary: oklch(0.55 0.2 255);
@@ -74,6 +76,12 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+  }
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
   }
   body {
     @apply bg-background text-foreground;

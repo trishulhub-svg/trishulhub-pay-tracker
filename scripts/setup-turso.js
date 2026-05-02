@@ -34,6 +34,7 @@ async function main() {
       termsAccepted BOOLEAN NOT NULL DEFAULT false,
       termsAcceptedAt DATETIME,
       emailVerified BOOLEAN NOT NULL DEFAULT false,
+      deactivated BOOLEAN NOT NULL DEFAULT false,
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
@@ -46,6 +47,7 @@ async function main() {
       id TEXT PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,
       userId TEXT NOT NULL,
+      payRate REAL NOT NULL DEFAULT 0,
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (userId) REFERENCES User(id) ON DELETE CASCADE,
@@ -92,6 +94,7 @@ async function main() {
       breakMinutes INTEGER NOT NULL DEFAULT 0,
       totalHours REAL NOT NULL DEFAULT 0,
       shiftType TEXT NOT NULL DEFAULT 'REGULAR',
+      payRate REAL NOT NULL DEFAULT 0,
       notes TEXT,
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -127,6 +130,19 @@ async function main() {
   `);
   console.log('  ✅ Setting table created');
 
+  // Create PayRateHistory table
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS PayRateHistory (
+      id TEXT PRIMARY KEY NOT NULL,
+      companyId TEXT NOT NULL,
+      payRate REAL NOT NULL,
+      effectiveFrom TEXT NOT NULL,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (companyId) REFERENCES Company(id) ON DELETE CASCADE
+    )
+  `);
+  console.log('  ✅ PayRateHistory table created');
+
   // Create indexes for performance
   console.log('📋 Creating indexes...');
   
@@ -140,6 +156,8 @@ async function main() {
   await client.execute(`CREATE INDEX IF NOT EXISTS idx_shift_date ON Shift(date)`);
   await client.execute(`CREATE INDEX IF NOT EXISTS idx_otp_email ON OtpCode(email)`);
   await client.execute(`CREATE INDEX IF NOT EXISTS idx_otp_expires ON OtpCode(expiresAt)`);
+  await client.execute(`CREATE INDEX IF NOT EXISTS idx_payrate_companyId ON PayRateHistory(companyId)`);
+  await client.execute(`CREATE INDEX IF NOT EXISTS idx_payrate_effectiveFrom ON PayRateHistory(effectiveFrom)`);
   console.log('  ✅ Indexes created');
 
   // Seed admin user

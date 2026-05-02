@@ -34,13 +34,24 @@ model Company {
   id             String          @id @default(cuid())
   name           String
   userId         String
+  payRate        Float           @default(0)
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   paymentRecords PaymentRecord[]
   shifts         Shift[]
+  payRateHistory PayRateHistory[]
 
   @@unique([userId, name])
+}
+
+model PayRateHistory {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  payRate     Float
+  effectiveFrom String  // ISO date string (YYYY-MM-DD)
+  createdAt   DateTime @default(now())
 }
 
 model PaymentRecord {
@@ -78,6 +89,7 @@ model Shift {
   breakMinutes  Int      @default(0)
   totalHours    Float    @default(0)
   shiftType     String   @default("REGULAR")
+  payRate       Float    @default(0)
   notes         String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

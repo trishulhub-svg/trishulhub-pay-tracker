@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const { name } = await request.json();
+    const { name, payRate } = await request.json();
 
     if (!name || !name.trim()) {
       return NextResponse.json({ error: 'Company name is required' }, { status: 400 });
@@ -58,12 +58,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'A company with this name already exists' }, { status: 409 });
     }
 
+    const parsedPayRate = parseFloat(payRate) || 0;
+
     const company = await db.company.create({
       data: {
         name: name.trim(),
         userId: user.id,
+        payRate: parsedPayRate,
       },
     });
+
+    // If pay rate is set, create initial pay rate history entry
+    if (parsedPayRate > 0) {
+      await db.payRateHistory.create({
+        data: {
+          companyId: company.id,
+          payRate: parsedPayRate,
+          effectiveFrom: new Date().toISOString().split('T')[0], // Today
+        },
+      });
+    }
 
     return NextResponse.json({ company }, { status: 201 });
   } catch (error) {
