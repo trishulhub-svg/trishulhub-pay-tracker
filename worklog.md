@@ -92,3 +92,29 @@ Stage Summary:
 - User needs to create new Vercel project under their own account and import the GitHub repo
 - Must set 10 environment variables including DATABASE_URL=file:/tmp/dummy.db for prisma generate
 - Old Vercel project (owned by z@container) should be deleted to stop failed deployment emails
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: Add Admin SMTP Settings UI for managing Brevo credentials from the app
+
+Work Log:
+- Added Setting model to Prisma schema (key/value store for config)
+- Created Setting table in Turso production database
+- Added setting interface to db.ts with get/set/getAll/delete methods (dual Turso/Prisma)
+- Created /api/admin/settings API endpoint (GET with masked values, PUT to save)
+- Rewrote email.ts to read Brevo credentials from DB first, fallback to env vars
+- Added 5-minute settings cache with auto-invalidation on save
+- Email transporter created fresh per send (supports live credential changes)
+- Added SMTP Settings tab to AdminView in page.tsx with full form UI
+- API key field has show/hide toggle, sensitive values are masked
+- Status indicator shows if email service is configured
+- .env.example cleaned - no real API keys committed
+- Build tested successfully
+- Pushed to GitHub as commit 8373a0e
+
+Stage Summary:
+- Admin can now manage Brevo SMTP credentials from Admin > SMTP Settings tab
+- No API keys are committed to the public repo
+- Settings in DB take priority over env vars
+- The Setting table is also available for future admin config needs
