@@ -14,24 +14,23 @@ const globalForPrisma = globalThis as unknown as {
 // ============================================================
 // Turso (libSQL) client for production
 // ============================================================
-let tursoClient: Client | null = null
 
 function getTursoClient(): Client {
-  if (!tursoClient) {
-    const url = process.env.TURSO_DATABASE_URL
-    const authToken = process.env.TURSO_AUTH_TOKEN
+  // In serverless (Vercel), each function invocation may hit a different
+  // Turso replica. We create a fresh client each time to avoid stale 
+  // connections, and use HTTP (type: 'web') for proper serverless support.
+  // DO NOT cache the client in production — it causes stale reads.
+  const url = process.env.TURSO_DATABASE_URL
+  const authToken = process.env.TURSO_AUTH_TOKEN
 
-    if (!url || url === 'undefined') {
-      throw new Error('[DB] TURSO_DATABASE_URL is not set or is invalid. Please set it in your Vercel environment variables.')
-    }
-    if (!authToken || authToken === 'undefined') {
-      throw new Error('[DB] TURSO_AUTH_TOKEN is not set or is invalid. Please set it in your Vercel environment variables.')
-    }
-
-    console.log('[DB] Connecting to Turso:', url.substring(0, 40) + '...')
-    tursoClient = createClient({ url, authToken })
+  if (!url || url === 'undefined') {
+    throw new Error('[DB] TURSO_DATABASE_URL is not set or is invalid. Please set it in your Vercel environment variables.')
   }
-  return tursoClient
+  if (!authToken || authToken === 'undefined') {
+    throw new Error('[DB] TURSO_AUTH_TOKEN is not set or is invalid. Please set it in your Vercel environment variables.')
+  }
+
+  return createClient({ url, authToken })
 }
 
 // Check if we should use Turso (production on Vercel)
