@@ -1,25 +1,38 @@
 // Email sending utility using Brevo SMTP via nodemailer
-// Uses the SMTP credentials provided by the user
+// Credentials are read from the database (admin settings) first,
+// falling back to environment variables. This allows the admin
+// to update SMTP credentials from the UI without redeploying.
 
 import nodemailer from 'nodemailer';
+import { db } from './db';
 
-const BREVO_SMTP_SERVER = process.env.BREVO_SMTP_SERVER || 'smtp-relay.brevo.com';
-const BREVO_SMTP_PORT = parseInt(process.env.BREVO_SMTP_PORT || '587');
-const BREVO_SMTP_LOGIN = process.env.BREVO_SMTP_LOGIN || '';
-const BREVO_API_KEY = process.env.BREVO_API_KEY || '';
-const BREVO_FROM_EMAIL = process.env.BREVO_FROM_EMAIL || 'noreply@trishulhub.com';
-const BREVO_FROM_NAME = process.env.BREVO_FROM_NAME || 'TrishulHub Pay Tracker';
+// Cached settings (refreshed every 5 minutes)
+let cachedSettings: Record<string, string> | null = null;
+let settingsCacheTime = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-// Create reusable transporter using Brevo SMTP
-const transporter = nodemailer.createTransport({
-  host: BREVO_SMTP_SERVER,
-  port: BREVO_SMTP_PORT,
-  secure: false, // true for 465, false for other ports (587 uses STARTTLS)
-  auth: {
-    user: BREVO_SMTP_LOGIN,
-    pass: BREVO_API_KEY, // Brevo uses the API key as the SMTP password
-  },
-});
+async function getBrevoSettings(): Promise<Record<string, string>> {
+  // Use cache if fresh
+  if (cachedSettings && Date.now() - settingsCacheTime < CACHE_TTL) {
+    return cachedSettings;
+  }
+
+  try {
+    const allSettings = await db.setting.getAll();
+    cachedSettings = allSettings;
+    settingsCacheTime = Date.now();
+    return allSettings;
+  } catch (error) {
+    console.error('[EMAIL] Failed to read settings from DB:', error);
+    // Return empty object — will fall back to env vars
+    return {};
+  }
+}
+
+// Get a Brevo config value: DB first, then env var, then default
+function pickValue(dbSettings: Record<string, string>, key: string, envDefault: string = ''): string {
+  return dbSettings[key] || process.env[key] || envDefault;
+}
 
 interface EmailPayload {
   to: { email: string; name?: string }[];
@@ -29,14 +42,35 @@ interface EmailPayload {
 }
 
 export async function sendEmail(payload: EmailPayload): Promise<{ success: boolean; error?: string }> {
-  if (!BREVO_SMTP_LOGIN || !BREVO_API_KEY) {
-    console.error('Brevo SMTP credentials not configured');
+  // Read credentials from DB (with env var fallback)
+  const dbSettings = await getBrevoSettings();
+
+  const smtpServer = pickValue(dbSettings, 'BREVO_SMTP_SERVER', 'smtp-relay.brevo.com');
+  const smtpPort = parseInt(pickValue(dbSettings, 'BREVO_SMTP_PORT', '587'));
+  const smtpLogin = pickValue(dbSettings, 'BREVO_SMTP_LOGIN');
+  const apiKey = pickValue(dbSettings, 'BREVO_API_KEY');
+  const fromEmail = pickValue(dbSettings, 'BREVO_FROM_EMAIL', 'noreply@trishulhub.com');
+  const fromName = pickValue(dbSettings, 'BREVO_FROM_NAME', 'TrishulHub Pay Tracker');
+
+  if (!smtpLogin || !apiKey) {
+    console.error('[EMAIL] Brevo SMTP credentials not configured. Set them in Admin Settings or environment variables.');
     return { success: false, error: 'Email service not configured' };
   }
 
   try {
+    // Create a fresh transporter each time (credentials may have changed)
+    const transporter = nodemailer.createTransport({
+      host: smtpServer,
+      port: smtpPort,
+      secure: false, // 587 uses STARTTLS
+      auth: {
+        user: smtpLogin,
+        pass: apiKey, // Brevo uses the API key as the SMTP password
+      },
+    });
+
     const result = await transporter.sendMail({
-      from: `"${BREVO_FROM_NAME}" <${BREVO_FROM_EMAIL}>`,
+      from: `"${fromName}" <${fromEmail}>`,
       to: payload.to.map((t) => t.name ? `"${t.name}" <${t.email}>` : t.email).join(', '),
       subject: payload.subject,
       html: payload.htmlContent,
@@ -46,9 +80,17 @@ export async function sendEmail(payload: EmailPayload): Promise<{ success: boole
     console.log(`[EMAIL] Sent successfully to ${payload.to.map(t => t.email).join(', ')} - MessageId: ${result.messageId}`);
     return { success: true };
   } catch (error) {
-    console.error('Email send error:', error);
+    console.error('[EMAIL] Send error:', error);
+    // Invalidate cache on error — maybe credentials changed
+    cachedSettings = null;
     return { success: false, error: 'Failed to send email' };
   }
+}
+
+// Force-refresh the settings cache (called after admin updates settings)
+export function invalidateSettingsCache() {
+  cachedSettings = null;
+  settingsCacheTime = 0;
 }
 
 export function generateOtpCode(): string {

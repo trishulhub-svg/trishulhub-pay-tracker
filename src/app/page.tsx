@@ -12,7 +12,7 @@ import {
   Clock, Building2, TrendingUp, PoundSterling, BarChart3,
   Shield, X, UserPlus, Star, Info,
   Loader2, Mail, Lock, User, KeyRound, ExternalLink, CheckCircle2,
-  FileCheck, Monitor
+  FileCheck, Monitor, Save, Server
 } from 'lucide-react';
 import { useAppStore, SessionUser } from '@/lib/store';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -3138,6 +3138,7 @@ function SettingsView({ user, onLogout, theme, setTheme }: { user: SessionUser; 
 // ADMIN VIEW
 // ============================================================
 function AdminView() {
+  const [adminTab, setAdminTab] = useState<'stats' | 'smtp'>('stats');
   const [data, setData] = useState<AdminData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -3165,81 +3166,279 @@ function AdminView() {
         <Shield className="h-5 w-5" /> Admin Dashboard
       </h1>
 
-      {/* Stats grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard title="Total Users" value={stats.totalUsers.toString()} icon={Users} gradient="from-blue-600 to-blue-700 dark:from-blue-700 dark:to-blue-800" />
-        <StatCard title="Premium Users" value={stats.premiumUsers.toString()} icon={Star} gradient="from-amber-600 to-amber-700 dark:from-amber-700 dark:to-amber-800" />
-        <StatCard title="Total Companies" value={stats.totalCompanies.toString()} icon={Building2} gradient="from-green-600 to-green-700 dark:from-green-700 dark:to-green-800" />
-        <StatCard title="Total Shifts" value={stats.totalShifts.toString()} icon={CalendarDays} gradient="from-purple-600 to-purple-700 dark:from-purple-700 dark:to-purple-800" />
+      {/* Tab switcher */}
+      <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
+        <button
+          onClick={() => setAdminTab('stats')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            adminTab === 'stats' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <BarChart3 className="h-4 w-4" /> Stats
+        </button>
+        <button
+          onClick={() => setAdminTab('smtp')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            adminTab === 'smtp' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Mail className="h-4 w-4" /> SMTP Settings
+        </button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        <Card className="border-border">
-          <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-foreground">{stats.signupsThisMonth}</p>
-            <p className="text-xs text-muted-foreground">Signups This Month</p>
-          </CardContent>
-        </Card>
-        <Card className="border-border">
-          <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-foreground">{stats.signupsLastMonth}</p>
-            <p className="text-xs text-muted-foreground">Signups Last Month</p>
-          </CardContent>
-        </Card>
-        <Card className="border-border col-span-2 md:col-span-1">
-          <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-foreground">{stats.referralConversions}</p>
-            <p className="text-xs text-muted-foreground">Referral Conversions</p>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Stats Tab */}
+      {adminTab === 'stats' && (
+        <>
+          {/* Stats grid */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <StatCard title="Total Users" value={stats.totalUsers.toString()} icon={Users} gradient="from-blue-600 to-blue-700 dark:from-blue-700 dark:to-blue-800" />
+            <StatCard title="Premium Users" value={stats.premiumUsers.toString()} icon={Star} gradient="from-amber-600 to-amber-700 dark:from-amber-700 dark:to-amber-800" />
+            <StatCard title="Total Companies" value={stats.totalCompanies.toString()} icon={Building2} gradient="from-green-600 to-green-700 dark:from-green-700 dark:to-green-800" />
+            <StatCard title="Total Shifts" value={stats.totalShifts.toString()} icon={CalendarDays} gradient="from-purple-600 to-purple-700 dark:from-purple-700 dark:to-purple-800" />
+          </div>
 
-      {/* Monthly signups */}
-      <Card className="border-border">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Monthly Signups</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            {monthlySignups.map((ms) => (
-              <div key={ms.month} className="flex items-center gap-3">
-                <span className="text-sm text-muted-foreground w-28 shrink-0">{ms.month}</span>
-                <div className="flex-1 h-6 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-blue-600 to-green-600 rounded-full"
-                    style={{ width: `${Math.min(100, (ms.count / Math.max(...monthlySignups.map((m) => m.count), 1)) * 100)}%` }}
-                  />
-                </div>
-                <span className="text-sm font-medium text-foreground w-8 text-right">{ms.count}</span>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <Card className="border-border">
+              <CardContent className="p-4 text-center">
+                <p className="text-2xl font-bold text-foreground">{stats.signupsThisMonth}</p>
+                <p className="text-xs text-muted-foreground">Signups This Month</p>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4 text-center">
+                <p className="text-2xl font-bold text-foreground">{stats.signupsLastMonth}</p>
+                <p className="text-xs text-muted-foreground">Signups Last Month</p>
+              </CardContent>
+            </Card>
+            <Card className="border-border col-span-2 md:col-span-1">
+              <CardContent className="p-4 text-center">
+                <p className="text-2xl font-bold text-foreground">{stats.referralConversions}</p>
+                <p className="text-xs text-muted-foreground">Referral Conversions</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Monthly signups */}
+          <Card className="border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Monthly Signups</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {monthlySignups.map((ms) => (
+                  <div key={ms.month} className="flex items-center gap-3">
+                    <span className="text-sm text-muted-foreground w-28 shrink-0">{ms.month}</span>
+                    <div className="flex-1 h-6 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-blue-600 to-green-600 rounded-full"
+                        style={{ width: `${Math.min(100, (ms.count / Math.max(...monthlySignups.map((m) => m.count), 1)) * 100)}%` }}
+                      />
+                    </div>
+                    <span className="text-sm font-medium text-foreground w-8 text-right">{ms.count}</span>
+                  </div>
+                ))}
               </div>
-            ))}
+            </CardContent>
+          </Card>
+
+          {/* Recent signups */}
+          <Card className="border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Recent Signups</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {recentSignups.map((s, i) => (
+                  <div key={i} className="flex items-center justify-between p-2 rounded-lg border border-border">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+                        <span className="text-xs font-medium text-muted-foreground">U{i + 1}</span>
+                      </div>
+                      <span className="text-sm text-muted-foreground">
+                        {new Date(s.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {s.isPremium && <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 text-[10px]"><Star className="h-3 w-3 mr-0.5" /> Premium</Badge>}
+                      {s.referredBy && <Badge variant="outline" className="text-[10px]">Referred</Badge>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {/* SMTP Settings Tab */}
+      {adminTab === 'smtp' && <SmtpSettingsView />}
+    </div>
+  );
+}
+
+// ============================================================
+// SMTP SETTINGS VIEW (inside Admin tab)
+// ============================================================
+function SmtpSettingsView() {
+  const [settings, setSettings] = useState<Record<string, { value: string; source: string; masked: string }>>({});
+  const [form, setForm] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+
+  useEffect(() => { fetchSettings(); }, []);
+
+  const fetchSettings = async () => {
+    setLoading(true);
+    try {
+      const data = await apiFetch('/api/admin/settings');
+      setSettings(data.settings);
+      // Pre-fill form with current values
+      const formValues: Record<string, string> = {};
+      for (const [key, info] of Object.entries(data.settings as Record<string, { value: string; source: string; masked: string }>)) {
+        formValues[key] = info.value || '';
+      }
+      setForm(formValues);
+    } catch {
+      toast.error('Failed to load SMTP settings');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const result = await apiFetch('/api/admin/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ settings: form }),
+      });
+      toast.success(result.message || 'Settings saved successfully');
+      fetchSettings(); // Refresh to show updated masked values
+    } catch (err) {
+      toast.error('Failed to save settings');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <LoadingSkeleton />;
+
+  const smtpFields = [
+    { key: 'BREVO_SMTP_SERVER', label: 'SMTP Server', placeholder: 'smtp-relay.brevo.com', type: 'text', icon: Server },
+    { key: 'BREVO_SMTP_PORT', label: 'SMTP Port', placeholder: '587', type: 'text', icon: Settings },
+    { key: 'BREVO_SMTP_LOGIN', label: 'SMTP Login', placeholder: 'your-login@smtp-brevo.com', type: 'text', icon: Mail },
+    { key: 'BREVO_API_KEY', label: 'SMTP Password (API Key)', placeholder: 'Enter your Brevo API key', type: showApiKey ? 'text' : 'password', icon: KeyRound },
+    { key: 'BREVO_FROM_EMAIL', label: 'Sender Email', placeholder: 'your-sender@smtp-brevo.com', type: 'text', icon: Mail },
+    { key: 'BREVO_FROM_NAME', label: 'Sender Name', placeholder: 'TrishulHub Pay Tracker', type: 'text', icon: User },
+  ];
+
+  const hasAnyConfig = Object.values(settings).some(s => s.value);
+
+  return (
+    <div className="space-y-4">
+      {/* Info banner */}
+      <Card className="border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
+        <CardContent className="p-4">
+          <div className="flex gap-3">
+            <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-blue-900 dark:text-blue-200">Brevo SMTP Configuration</p>
+              <p className="text-xs text-blue-700 dark:text-blue-300">
+                These credentials are used to send OTP verification and password reset emails.
+                Settings saved here take priority over environment variables. Values are stored securely in the database.
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Recent signups */}
+      {/* Current status */}
+      <div className="flex items-center gap-2">
+        <div className={`h-2.5 w-2.5 rounded-full ${hasAnyConfig ? 'bg-green-500' : 'bg-red-500'}`} />
+        <span className="text-sm text-muted-foreground">
+          {hasAnyConfig ? 'Email service configured' : 'Email service not configured — OTP emails will not be sent'}
+        </span>
+      </div>
+
+      {/* Settings form */}
       <Card className="border-border">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Recent Signups</CardTitle>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Mail className="h-4 w-4" /> SMTP Credentials
+          </CardTitle>
+          <CardDescription className="text-xs">
+            All fields are optional. Leave blank to use environment variable defaults.
+          </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            {recentSignups.map((s, i) => (
-              <div key={i} className="flex items-center justify-between p-2 rounded-lg border border-border">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
-                    <span className="text-xs font-medium text-muted-foreground">U{i + 1}</span>
-                  </div>
-                  <span className="text-sm text-muted-foreground">
-                    {new Date(s.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                  </span>
+        <CardContent className="space-y-4">
+          {smtpFields.map((field) => {
+            const Icon = field.icon;
+            const currentSetting = settings[field.key];
+            const sourceLabel = currentSetting?.source === 'database' ? 'Database' : currentSetting?.source === 'env' ? 'Env Variable' : 'Default';
+            const sourceColor = currentSetting?.source === 'database' ? 'text-green-600 dark:text-green-400' : currentSetting?.source === 'env' ? 'text-blue-600 dark:text-blue-400' : 'text-muted-foreground';
+
+            return (
+              <div key={field.key} className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm flex items-center gap-1.5">
+                    <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                    {field.label}
+                  </Label>
+                  {currentSetting?.value && (
+                    <span className={`text-[10px] font-medium ${sourceColor}`}>
+                      Source: {sourceLabel}
+                      {currentSetting.source !== 'database' && currentSetting.masked && (
+                        <span className="ml-1 text-muted-foreground">({currentSetting.masked})</span>
+                      )}
+                    </span>
+                  )}
                 </div>
-                <div className="flex items-center gap-2">
-                  {s.isPremium && <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 text-[10px]"><Star className="h-3 w-3 mr-0.5" /> Premium</Badge>}
-                  {s.referredBy && <Badge variant="outline" className="text-[10px]">Referred</Badge>}
+                <div className="relative">
+                  <Input
+                    type={field.type}
+                    placeholder={field.placeholder}
+                    value={form[field.key] || ''}
+                    onChange={(e) => setForm({ ...form, [field.key]: e.target.value })}
+                    className="text-sm pr-10"
+                  />
+                  {field.key === 'BREVO_API_KEY' && (
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  )}
                 </div>
               </div>
-            ))}
+            );
+          })}
+        </CardContent>
+        <CardFooter className="flex justify-between border-t pt-4">
+          <Button variant="outline" size="sm" onClick={fetchSettings} disabled={saving}>
+            Reset
+          </Button>
+          <Button size="sm" onClick={handleSave} disabled={saving} className="gap-2">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {saving ? 'Saving...' : 'Save Settings'}
+          </Button>
+        </CardFooter>
+      </Card>
+
+      {/* Security note */}
+      <Card className="border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20">
+        <CardContent className="p-4">
+          <div className="flex gap-3">
+            <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-amber-900 dark:text-amber-200">Security Notice</p>
+              <p className="text-xs text-amber-700 dark:text-amber-300">
+                Your API key is stored encrypted in the database and masked in the UI. Only enter a new value when you want to update it.
+                If you leave the API Key field blank, the current saved value (or environment variable) will continue to be used.
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>

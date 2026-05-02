@@ -117,6 +117,16 @@ async function main() {
   `);
   console.log('  ✅ OtpCode table created');
 
+  // Create Setting table (for admin-managed configuration like Brevo SMTP)
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS Setting (
+      key TEXT PRIMARY KEY NOT NULL,
+      value TEXT NOT NULL,
+      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  console.log('  ✅ Setting table created');
+
   // Create indexes for performance
   console.log('📋 Creating indexes...');
   

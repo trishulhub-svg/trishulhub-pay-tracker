@@ -682,5 +682,65 @@ export const otpCode = {
   },
 }
 
+// ==================== SETTING ====================
+export const setting = {
+  async get(key: string): Promise<string | null> {
+    if (useTurso()) {
+      const client = getTursoClient()
+      const r = await client.execute({ sql: 'SELECT value FROM Setting WHERE key = ?', args: [key] })
+      return (r.rows[0]?.value as string) ?? null
+    }
+    const prisma = getPrismaClient()
+    const row = await prisma.setting.findUnique({ where: { key } })
+    return row?.value ?? null
+  },
+
+  async set(key: string, value: string): Promise<void> {
+    if (useTurso()) {
+      const client = getTursoClient()
+      await client.execute({
+        sql: 'INSERT INTO Setting (key, value, updatedAt) VALUES (?, ?, datetime(\'now\')) ON CONFLICT(key) DO UPDATE SET value = ?, updatedAt = datetime(\'now\')',
+        args: [key, value, value],
+      })
+      return
+    }
+    const prisma = getPrismaClient()
+    await prisma.setting.upsert({
+      where: { key },
+      update: { value },
+      create: { key, value },
+    })
+  },
+
+  async getAll(): Promise<Record<string, string>> {
+    if (useTurso()) {
+      const client = getTursoClient()
+      const r = await client.execute({ sql: 'SELECT key, value FROM Setting', args: [] })
+      const result: Record<string, string> = {}
+      for (const row of r.rows) {
+        result[row.key as string] = row.value as string
+      }
+      return result
+    }
+    const prisma = getPrismaClient()
+    const rows = await prisma.setting.findMany()
+    const result: Record<string, string> = {}
+    for (const row of rows) {
+      result[row.key] = row.value
+    }
+    return result
+  },
+
+  async delete(key: string): Promise<void> {
+    if (useTurso()) {
+      const client = getTursoClient()
+      await client.execute({ sql: 'DELETE FROM Setting WHERE key = ?', args: [key] })
+      return
+    }
+    const prisma = getPrismaClient()
+    await prisma.setting.delete({ where: { key } })
+  },
+}
+
 // Export as `db` for backward compatibility with existing code
-export const db = { user, company, paymentRecord, shift, otpCode }
+export const db = { user, company, paymentRecord, shift, otpCode, setting }
