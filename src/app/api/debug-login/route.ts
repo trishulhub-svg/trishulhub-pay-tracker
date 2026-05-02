@@ -9,7 +9,8 @@ export async function POST(request: Request) {
     
     // Check if Turso is being used
     const useTurso = !!(process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN && process.env.TURSO_DATABASE_URL.startsWith('libsql://'));
-    
+    const fullTursoUrl = process.env.TURSO_DATABASE_URL || 'NOT SET';
+    const tursoTokenPrefix = process.env.TURSO_AUTH_TOKEN?.substring(0, 15) || 'NOT SET';
     // Try to find user
     const user = await db.user.findUnique({ where: { email } });
     
@@ -17,7 +18,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ 
         debug: true,
         useTurso,
-        tursoUrl: process.env.TURSO_DATABASE_URL?.substring(0, 30) || 'NOT SET',
+        fullTursoUrl,
+        tursoTokenPrefix,
         error: 'User not found in database',
         email,
       });
@@ -31,7 +33,8 @@ export async function POST(request: Request) {
     return NextResponse.json({
       debug: true,
       useTurso,
-      tursoUrl: process.env.TURSO_DATABASE_URL?.substring(0, 30) || 'NOT SET',
+      fullTursoUrl,
+      tursoTokenPrefix,
       userId: user.id,
       userEmail: user.email,
       userRole: user.role,
