@@ -689,7 +689,7 @@ export const otpCode = {
       }
       if (args.where.expiresAt && args.where.expiresAt.gte) {
         conditions.push('expiresAt >= ?')
-        values.push(args.where.expiresAt.gte)
+        values.push(toSqlValue(args.where.expiresAt.gte))
       }
       const r = await client.execute({
         sql: `SELECT * FROM OtpCode WHERE ${conditions.join(' AND ')} ORDER BY createdAt DESC LIMIT 1`,

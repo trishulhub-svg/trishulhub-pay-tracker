@@ -571,6 +571,17 @@ export default function TrishulHubPayTracker() {
         setHydrated(true);
         if (ref) setAuthView('signup');
       });
+
+    // Refresh session every 5 minutes to pick up isPremium/role changes
+    const interval = setInterval(() => {
+      apiFetch('/api/auth/session')
+        .then((data) => {
+          if (data.user) setUser(data.user);
+        })
+        .catch(() => { /* ignore */ });
+    }, 5 * 60 * 1000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const handleLogout = async () => {
@@ -2324,14 +2335,14 @@ function CompaniesView() {
                       </div>
                     </div>
                   </div>
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" onClick={() => { setUpdatePayRateId(c.id); setNewPayRate(c.payRate.toString()); setEffectiveFrom(''); setEffectiveDay('1'); setEffectiveMonth(String(new Date().getMonth() + 1)); setEffectiveYear(String(new Date().getFullYear())); setUseDatePicker(false); }} className="h-10 w-10" title="Update pay rate">
+                  <div className="flex gap-1 shrink-0">
+                    <Button variant="ghost" size="icon" onClick={() => { setUpdatePayRateId(c.id); setNewPayRate(c.payRate.toString()); setEffectiveFrom(''); setEffectiveDay('1'); setEffectiveMonth(String(new Date().getMonth() + 1)); setEffectiveYear(String(new Date().getFullYear())); setUseDatePicker(false); }} className="h-9 w-9 min-h-[44px] min-w-[44px]" title="Update pay rate">
                       <PoundSterling className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => handleEdit(c)} className="h-10 w-10">
+                    <Button variant="ghost" size="icon" onClick={() => handleEdit(c)} className="h-9 w-9 min-h-[44px] min-w-[44px]">
                       <Edit3 className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => setDeleteId(c.id)} className="h-10 w-10 text-destructive">
+                    <Button variant="ghost" size="icon" onClick={() => setDeleteId(c.id)} className="h-9 w-9 min-h-[44px] min-w-[44px] text-destructive">
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
@@ -2363,7 +2374,7 @@ function CompaniesView() {
 
       {/* Update pay rate dialog */}
       <Dialog open={!!updatePayRateId} onOpenChange={(v) => { if (!v) { setUpdatePayRateId(null); setNewPayRate(''); setEffectiveFrom(''); setUseDatePicker(false); } }}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Update Pay Rate</DialogTitle>
             <DialogDescription>Set the new hourly pay rate for this company. You can choose when it takes effect.</DialogDescription>
@@ -2387,7 +2398,7 @@ function CompaniesView() {
               {useDatePicker ? (
                 <Input type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} className="h-12" />
               ) : (
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-3 gap-2 sm:gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">Day</Label>
                     <Select value={effectiveDay} onValueChange={setEffectiveDay}>
@@ -2426,8 +2437,8 @@ function CompaniesView() {
               <p className="text-xs text-muted-foreground">Leave as today to apply immediately. If a future date is set, this rate will apply from that date for all new shifts.</p>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setUpdatePayRateId(null); setNewPayRate(''); setEffectiveFrom(''); setUseDatePicker(false); }}>Cancel</Button>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => { setUpdatePayRateId(null); setNewPayRate(''); setEffectiveFrom(''); setUseDatePicker(false); }} className="w-full sm:w-auto">Cancel</Button>
             <Button onClick={handleUpdatePayRate} disabled={payRateLoading} className="bg-gradient-to-r from-blue-600 to-green-600 text-white">
               {payRateLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <PoundSterling className="h-4 w-4 mr-2" />}
               {useDatePicker && effectiveFrom ? `Apply from ${effectiveFrom}` : !useDatePicker ? `Apply from ${effectiveDay} ${MONTHS[parseInt(effectiveMonth) - 1]} ${effectiveYear}` : 'Update Pay Rate'}
@@ -2903,7 +2914,7 @@ function ShiftsView({ user }: { user: SessionUser }) {
 
       {/* Download Rota Dialog */}
       <Dialog open={showRotaDialog} onOpenChange={setShowRotaDialog}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Download Monthly Rota</DialogTitle>
             <DialogDescription>
@@ -2929,7 +2940,7 @@ function ShiftsView({ user }: { user: SessionUser }) {
             ) : (
               <div className="space-y-2">
                 <Label>Date Range</Label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">From</Label>
                     <Input type="date" value={rotaFrom} onChange={(e) => setRotaFrom(e.target.value)} className="h-10" />
@@ -2942,9 +2953,9 @@ function ShiftsView({ user }: { user: SessionUser }) {
               </div>
             )}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowRotaDialog(false)}>Cancel</Button>
-            <Button onClick={executeDownload} disabled={downloading} className="bg-gradient-to-r from-blue-600 to-green-600 text-white">
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setShowRotaDialog(false)} className="w-full sm:w-auto">Cancel</Button>
+            <Button onClick={executeDownload} disabled={downloading} className="bg-gradient-to-r from-blue-600 to-green-600 text-white w-full sm:w-auto">
               {downloading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <FileCheck className="h-4 w-4 mr-2" />}
               Download PDF
             </Button>
@@ -3588,30 +3599,30 @@ function AdminView() {
       </h1>
 
       {/* Tab switcher */}
-      <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
+      <div className="flex gap-1 p-1 bg-muted rounded-lg w-full sm:w-fit overflow-x-auto">
         <button
           onClick={() => setAdminTab('stats')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+          className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
             adminTab === 'stats' ? 'bg-card text-foreground shadow-sm border border-border' : 'text-muted-foreground hover:text-foreground'
           }`}
         >
-          <BarChart3 className="h-4 w-4" /> Stats
+          <BarChart3 className="h-3.5 w-3.5" /> Stats
         </button>
         <button
           onClick={() => setAdminTab('smtp')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+          className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
             adminTab === 'smtp' ? 'bg-card text-foreground shadow-sm border border-border' : 'text-muted-foreground hover:text-foreground'
           }`}
         >
-          <Mail className="h-4 w-4" /> SMTP Settings
+          <Mail className="h-3.5 w-3.5" /> SMTP
         </button>
         <button
           onClick={() => setAdminTab('users')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+          className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
             adminTab === 'users' ? 'bg-card text-foreground shadow-sm border border-border' : 'text-muted-foreground hover:text-foreground'
           }`}
         >
-          <Users className="h-4 w-4" /> Users
+          <Users className="h-3.5 w-3.5" /> Users
         </button>
       </div>
 
@@ -3788,13 +3799,13 @@ function AdminUsersView() {
           <CardContent>
             <div className="space-y-2">
               {activeUsers.map((u) => (
-                <div key={u.id} className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors">
+                <div key={u.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors gap-2">
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-green-600 flex items-center justify-center shrink-0">
                       <span className="text-sm font-bold text-white">{u.name.charAt(0).toUpperCase()}</span>
                     </div>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <p className="text-sm font-medium text-foreground truncate">{u.name}</p>
                         {u.role === 'ADMIN' && <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 text-[10px]"><Shield className="h-3 w-3 mr-0.5" /> Admin</Badge>}
                         {u.isPremium && <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 text-[10px]"><Star className="h-3 w-3 mr-0.5" /> PRO</Badge>}
@@ -3802,11 +3813,11 @@ function AdminUsersView() {
                       <p className="text-xs text-muted-foreground truncate">{u.email}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 ml-12 sm:ml-0">
                     <Button
                       variant="outline"
                       size="sm"
-                      className="text-amber-600 border-amber-300 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-700 dark:hover:bg-amber-950/40"
+                      className="text-amber-600 border-amber-300 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-700 dark:hover:bg-amber-950/40 text-xs"
                       disabled={actionLoading === u.id}
                       onClick={() => setConfirmAction({ userId: u.id, action: 'deactivate', userName: u.name })}
                     >
@@ -3815,7 +3826,7 @@ function AdminUsersView() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="text-red-600 border-red-300 hover:bg-red-50 dark:text-red-400 dark:border-red-700 dark:hover:bg-red-950/40"
+                      className="text-red-600 border-red-300 hover:bg-red-50 dark:text-red-400 dark:border-red-700 dark:hover:bg-red-950/40 text-xs"
                       disabled={actionLoading === u.id}
                       onClick={() => setConfirmAction({ userId: u.id, action: 'delete', userName: u.name })}
                     >
@@ -3840,24 +3851,24 @@ function AdminUsersView() {
           <CardContent>
             <div className="space-y-2">
               {deactivatedUsers.map((u) => (
-                <div key={u.id} className="flex items-center justify-between p-3 rounded-lg border border-red-200 dark:border-red-800/40 bg-red-50/50 dark:bg-red-950/20">
+                <div key={u.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-lg border border-red-200 dark:border-red-800/40 bg-red-50/50 dark:bg-red-950/20 gap-2">
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0">
                       <span className="text-sm font-bold text-muted-foreground">{u.name.charAt(0).toUpperCase()}</span>
                     </div>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <p className="text-sm font-medium text-foreground truncate">{u.name}</p>
                         <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 text-[10px]">Deactivated</Badge>
                       </div>
                       <p className="text-xs text-muted-foreground truncate">{u.email}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 ml-12 sm:ml-0">
                     <Button
                       variant="outline"
                       size="sm"
-                      className="text-green-600 border-green-300 hover:bg-green-50 dark:text-green-400 dark:border-green-700 dark:hover:bg-green-950/40"
+                      className="text-green-600 border-green-300 hover:bg-green-50 dark:text-green-400 dark:border-green-700 dark:hover:bg-green-950/40 text-xs"
                       disabled={actionLoading === u.id}
                       onClick={() => handleAction(u.id, 'activate')}
                     >
@@ -3866,7 +3877,7 @@ function AdminUsersView() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="text-red-600 border-red-300 hover:bg-red-50 dark:text-red-400 dark:border-red-700 dark:hover:bg-red-950/40"
+                      className="text-red-600 border-red-300 hover:bg-red-50 dark:text-red-400 dark:border-red-700 dark:hover:bg-red-950/40 text-xs"
                       disabled={actionLoading === u.id}
                       onClick={() => setConfirmAction({ userId: u.id, action: 'delete', userName: u.name })}
                     >
@@ -4012,16 +4023,16 @@ function SmtpSettingsView() {
 
             return (
               <div key={field.key} className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm flex items-center gap-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="text-sm flex items-center gap-1.5 shrink-0">
                     <Icon className="h-3.5 w-3.5 text-muted-foreground" />
                     {field.label}
                   </Label>
                   {currentSetting?.value && (
-                    <span className={`text-[10px] font-medium ${sourceColor}`}>
+                    <span className={`text-[10px] font-medium ${sourceColor} truncate`}>
                       Source: {sourceLabel}
                       {currentSetting.source !== 'database' && currentSetting.masked && (
-                        <span className="ml-1 text-muted-foreground">({currentSetting.masked})</span>
+                        <span className="ml-1 text-muted-foreground hidden sm:inline">({currentSetting.masked})</span>
                       )}
                     </span>
                   )}
@@ -4111,50 +4122,50 @@ function PremiumFeaturePopup({ open, onClose, user }: { open: boolean; onClose: 
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto p-4 sm:p-6">
         <DialogHeader>
-          <div className="mx-auto mb-2">
-            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-amber-400 via-orange-500 to-red-500 flex items-center justify-center shadow-lg shadow-orange-500/30">
-              <Star className="h-10 w-10 text-white" />
+          <div className="mx-auto mb-1">
+            <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-gradient-to-br from-amber-400 via-orange-500 to-red-500 flex items-center justify-center shadow-lg shadow-orange-500/30">
+              <Star className="h-7 w-7 sm:h-10 sm:w-10 text-white" />
             </div>
           </div>
-          <DialogTitle className="text-center text-2xl font-bold">Unlock All Premium Features</DialogTitle>
-          <DialogDescription className="text-center text-base">
+          <DialogTitle className="text-center text-lg sm:text-2xl font-bold">Unlock All Premium Features</DialogTitle>
+          <DialogDescription className="text-center text-sm sm:text-base">
             Refer just <strong>one friend</strong> and get <strong>all premium features for lifetime</strong> — completely free!
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 py-2">
+        <div className="space-y-3 sm:space-y-4 py-1 sm:py-2">
           {/* Premium benefits */}
-          <div className="space-y-2.5 rounded-xl border border-amber-200 dark:border-amber-500/40 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/20 p-4">
+          <div className="space-y-2 rounded-xl border border-amber-200 dark:border-amber-500/40 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/20 p-3 sm:p-4">
             <h4 className="font-bold text-amber-900 dark:text-amber-200 text-sm flex items-center gap-1.5">
               <Star className="h-4 w-4" /> Premium Benefits Include
             </h4>
-            <ul className="space-y-2 text-xs text-amber-800 dark:text-amber-300">
-              <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" /> Download shift rota for any custom date range</li>
-              <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" /> Auto-generated monthly rota PDFs delivered to your account</li>
-              <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" /> Email notifications when monthly rota is ready</li>
-              <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" /> Add unlimited companies</li>
-              <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" /> Priority support &amp; early access to new features</li>
+            <ul className="space-y-1.5 sm:space-y-2 text-xs text-amber-800 dark:text-amber-300">
+              <li className="flex items-start gap-2"><Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" /> Download shift rota for any custom date range</li>
+              <li className="flex items-start gap-2"><Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" /> Auto-generated monthly rota PDFs delivered to your account</li>
+              <li className="flex items-start gap-2"><Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" /> Email notifications when monthly rota is ready</li>
+              <li className="flex items-start gap-2"><Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" /> Add unlimited companies</li>
+              <li className="flex items-start gap-2"><Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" /> Priority support &amp; early access to new features</li>
             </ul>
           </div>
 
           {/* Referral code */}
-          <div className="text-center space-y-3">
-            <p className="text-sm text-muted-foreground">Share your unique referral code. When they sign up, you get <strong className="text-foreground">Premium for life!</strong></p>
-            <div className="flex items-center gap-2 p-3 rounded-xl border-2 border-dashed border-primary/30 bg-primary/5">
-              <span className="font-mono text-lg font-bold text-foreground flex-1 text-center tracking-wider">{user.referralCode}</span>
-              <Button variant="outline" size="sm" onClick={copyCode} className="min-h-[44px]">
+          <div className="text-center space-y-2 sm:space-y-3">
+            <p className="text-xs sm:text-sm text-muted-foreground">Share your unique referral code. When they sign up, you get <strong className="text-foreground">Premium for life!</strong></p>
+            <div className="flex items-center gap-2 p-2.5 sm:p-3 rounded-xl border-2 border-dashed border-primary/30 bg-primary/5">
+              <span className="font-mono text-sm sm:text-lg font-bold text-foreground flex-1 text-center tracking-wider break-all">{user.referralCode}</span>
+              <Button variant="outline" size="sm" onClick={copyCode} className="min-h-[44px] shrink-0">
                 {copiedCode ? <Check className="h-4 w-4 text-green-600 dark:text-green-400" /> : <Copy className="h-4 w-4" />}
               </Button>
             </div>
           </div>
 
           {/* Share button */}
-          <Button onClick={shareLink} className="w-full h-14 text-base font-semibold bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 hover:from-amber-600 hover:via-orange-600 hover:to-red-600 text-white shadow-lg shadow-orange-500/25">
-            <Share2 className="h-5 w-5 mr-2" /> Refer &amp; Unlock Premium for Life
+          <Button onClick={shareLink} className="w-full h-12 sm:h-14 text-sm sm:text-base font-semibold bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 hover:from-amber-600 hover:via-orange-600 hover:to-red-600 text-white shadow-lg shadow-orange-500/25">
+            <Share2 className="h-4 w-4 sm:h-5 sm:w-5 mr-2" /> Refer &amp; Unlock Premium for Life
           </Button>
 
-          <p className="text-center text-xs text-muted-foreground">
+          <p className="text-center text-[11px] sm:text-xs text-muted-foreground">
             Your friend also gets a great app — everyone wins!
           </p>
         </div>
