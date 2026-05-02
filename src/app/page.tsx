@@ -1382,7 +1382,7 @@ function CompaniesView() {
                         </Button>
                       </div>
                     </div>
-                    {stats && (stats as Record<string, unknown>).totals && (
+                    {stats && !!(stats as Record<string, unknown>).totals && (
                       <div className="grid grid-cols-2 gap-2 text-xs">
                         <div className="bg-muted/50 rounded p-2">
                           <span className="text-muted-foreground">Received</span>
@@ -1398,7 +1398,7 @@ function CompaniesView() {
                         </div>
                       </div>
                     )}
-                    {(stats as Record<string, unknown>)?.latestStatus && (
+                    {!!(stats as Record<string, unknown>)?.latestStatus && (
                       <div className="mt-2">
                         <Badge
                           variant={(stats as Record<string, unknown>).latestStatus === 'PAID' ? 'default' : 'secondary'}

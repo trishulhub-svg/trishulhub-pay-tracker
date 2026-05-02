@@ -1,26 +1,35 @@
 ---
 Task ID: 1
 Agent: Main Agent
-Task: Build complete Green Care Pay payment management web app
+Task: Rebuild "Green Care Pay" as "TrishulHub Pay Tracker" SaaS app
 
 Work Log:
-- Analyzed user's screenshot of their old Google Sheets-based "Green Care Pay" app
-- Identified all data fields: Month, Total Expected, Total Received, Total HMRC, Total Due, Status, Pay Slip Link, Last Updated, Worked Hours
-- Initialized Next.js 16 project with fullstack-dev skill
-- Updated Prisma schema with User and PaymentRecord models
-- Built session-based authentication with HMAC-signed tokens and HTTP-only cookies
-- Created seed script with admin user, demo employee, and 12 months of payment records
-- Built 9 API endpoints (auth, users, payment-records, upload-payslip, dashboard)
-- Built complete SPA with client-side navigation in page.tsx (1864 lines)
-- Implemented green/emerald theme with dark mode support
-- Added responsive design with sidebar (desktop) and bottom nav (mobile)
-- Added Framer Motion animations for page transitions and card hover effects
-- All lint checks pass cleanly
+- Analyzed user's TrishulHub logo (blue+green circular design with "TH" letters)
+- Understood the real use case: TrishulHub is a SaaS where ANY employee from ANY company can sign up free to track salary payments
+- Updated Prisma schema: added Company model, referralCode/referredBy/isPremium fields on User
+- Rebuilt session.ts to include isPremium and referralCode
+- Rebuilt store.ts with new views (companies, referrals, add-company) and updated SessionUser
+- Created signup API route with referral code support
+- Created companies API (CRUD with premium check - free users limited to 1 company)
+- Created referrals API
+- Updated dashboard API with company stats, per-company breakdown, and referral info
+- Updated payment records API to include companyId
+- Updated login/session APIs with new user fields
+- Deleted old admin-only users API routes
+- Updated globals.css with blue primary + green accent theme
+- Fixed layout.tsx with proper ThemeProvider for dark mode
+- Rebuilt page.tsx (2138 lines) with: AuthView (login/signup), CompaniesView, ReferralsView, Dashboard with company selector, premium upsell banners
+- Updated seed script with demo user (premium), 2 companies (Green Care + TrishulHub), 15 payment records
+- Copied TrishulHub logos to public folder
+- Fixed TypeScript errors (unknown type in JSX)
+- Fixed MONTH_NAMES formatting bug
+- All lint checks pass
 - All API endpoints tested and working
 
 Stage Summary:
-- Complete "Green Care Pay" app built and running
-- Admin: admin@greencare.com / admin123
-- Employee: employee@greencare.com / employee123
-- Features: Login, Dashboard, Payment Records (CRUD), User Management, Pay Slip Upload, Dark Mode, Responsive Design
-- Tech Stack: Next.js 16, TypeScript, Tailwind CSS 4, shadcn/ui, Prisma + SQLite, Zustand, Framer Motion
+- Complete TrishulHub Pay Tracker SaaS app rebuilt
+- Demo: demo@trishulhub.com / demo123
+- Free tier: 1 company, Premium: unlimited companies via referral
+- Referral code: TRISHUL-DEMO
+- Dark mode fixed with proper ThemeProvider
+- Blue+Green TrishulHub branding with real logos
