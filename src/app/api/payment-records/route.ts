@@ -10,20 +10,14 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('userId');
+    const companyId = searchParams.get('companyId');
     const month = searchParams.get('month');
     const year = searchParams.get('year');
     const status = searchParams.get('status');
 
-    const where: Record<string, unknown> = {};
+    const where: Record<string, unknown> = { userId: user.id };
 
-    // Employees can only see their own records
-    if (user.role !== 'ADMIN') {
-      where.userId = user.id;
-    } else if (userId) {
-      where.userId = userId;
-    }
-
+    if (companyId) where.companyId = companyId;
     if (month) where.month = parseInt(month);
     if (year) where.year = parseInt(year);
     if (status) where.status = status;
@@ -31,8 +25,8 @@ export async function GET(request: NextRequest) {
     const records = await db.paymentRecord.findMany({
       where,
       include: {
-        user: {
-          select: { id: true, name: true, email: true },
+        company: {
+          select: { id: true, name: true },
         },
       },
       orderBy: [{ year: 'desc' }, { month: 'desc' }],
@@ -60,15 +54,21 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const user = await getSession();
-    if (!user || user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: user ? 403 : 401 });
+    if (!user) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
     const body = await request.json();
-    const { userId, month, year, totalExpected, totalReceived, totalHMRC, workedHours, notes, status: inputStatus } = body;
+    const { companyId, month, year, totalExpected, totalReceived, totalHMRC, workedHours, notes, status: inputStatus } = body;
 
-    if (!userId || !month || !year) {
-      return NextResponse.json({ error: 'User, month, and year are required' }, { status: 400 });
+    if (!companyId || !month || !year) {
+      return NextResponse.json({ error: 'Company, month, and year are required' }, { status: 400 });
+    }
+
+    // Verify company belongs to user
+    const company = await db.company.findUnique({ where: { id: companyId } });
+    if (!company || company.userId !== user.id) {
+      return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
 
     const totalDue = Math.max(0, (totalExpected || 0) - (totalReceived || 0));
@@ -76,19 +76,20 @@ export async function POST(request: NextRequest) {
 
     // Check for existing record
     const existing = await db.paymentRecord.findUnique({
-      where: { userId_month_year: { userId, month, year } },
+      where: { userId_companyId_month_year: { userId: user.id, companyId, month, year } },
     });
 
     if (existing) {
       return NextResponse.json(
-        { error: 'A payment record already exists for this user/month/year' },
+        { error: 'A payment record already exists for this company/month/year' },
         { status: 409 }
       );
     }
 
     const record = await db.paymentRecord.create({
       data: {
-        userId,
+        userId: user.id,
+        companyId,
         month,
         year,
         totalExpected: totalExpected || 0,
@@ -100,8 +101,8 @@ export async function POST(request: NextRequest) {
         notes: notes || null,
       },
       include: {
-        user: {
-          select: { id: true, name: true, email: true },
+        company: {
+          select: { id: true, name: true },
         },
       },
     });

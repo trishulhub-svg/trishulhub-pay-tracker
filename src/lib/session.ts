@@ -1,16 +1,16 @@
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
 
-const SESSION_SECRET = process.env.SESSION_SECRET || 'green-care-pay-secret-key-change-in-production';
+const SESSION_SECRET = process.env.SESSION_SECRET || 'trishulhub-pay-tracker-secret-key-change-in-production';
 
 export interface SessionUser {
   id: string;
   email: string;
   name: string;
-  role: string;
+  isPremium: boolean;
+  referralCode: string;
 }
 
-// Simple base64 encode/decode session
 export function createSessionToken(user: SessionUser): string {
   const payload = JSON.stringify({
     ...user,
@@ -32,7 +32,8 @@ export function verifySessionToken(token: string): SessionUser | null {
       id: payload.id,
       email: payload.email,
       name: payload.name,
-      role: payload.role,
+      isPremium: payload.isPremium ?? false,
+      referralCode: payload.referralCode ?? '',
     };
   } catch {
     return null;

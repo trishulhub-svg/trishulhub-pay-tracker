@@ -1,106 +1,116 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const user = await getSession();
     if (!user) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    if (user.role === 'ADMIN') {
-      // Admin dashboard stats
-      const totalEmployees = await db.user.count({
-        where: { role: 'EMPLOYEE', isActive: true },
-      });
+    const { searchParams } = new URL(request.url);
+    const companyId = searchParams.get('companyId');
 
-      const allRecords = await db.paymentRecord.findMany({
-        include: {
-          user: {
-            select: { name: true },
-          },
+    // Get user's companies
+    const companies = await db.company.findMany({
+      where: { userId: user.id },
+      include: {
+        _count: { select: { paymentRecords: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Get records for selected company or all
+    const where: Record<string, unknown> = { userId: user.id };
+    if (companyId) where.companyId = companyId;
+
+    const records = await db.paymentRecord.findMany({
+      where,
+      include: {
+        company: {
+          select: { id: true, name: true },
         },
-        orderBy: [{ year: 'desc' }, { month: 'desc' }],
-      });
+      },
+      orderBy: [{ year: 'desc' }, { month: 'desc' }],
+    });
 
-      const totalRecords = allRecords.length;
-      const pendingCount = allRecords.filter((r) => r.status === 'PENDING').length;
-      const paidCount = allRecords.filter((r) => r.status === 'PAID').length;
+    // Calculate totals
+    const totals = records.reduce(
+      (acc, r) => ({
+        totalExpected: acc.totalExpected + r.totalExpected,
+        totalReceived: acc.totalReceived + r.totalReceived,
+        totalHMRC: acc.totalHMRC + r.totalHMRC,
+        totalDue: acc.totalDue + r.totalDue,
+        workedHours: acc.workedHours + r.workedHours,
+      }),
+      { totalExpected: 0, totalReceived: 0, totalHMRC: 0, totalDue: 0, workedHours: 0 }
+    );
 
-      const grandTotals = allRecords.reduce(
+    const pendingCount = records.filter((r) => r.status === 'PENDING').length;
+    const paidCount = records.filter((r) => r.status === 'PAID').length;
+    const recentRecords = records.slice(0, 10);
+
+    // Current month vs previous
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1;
+    const currentYear = now.getFullYear();
+    const currentMonthRecord = records.find(
+      (r) => r.month === currentMonth && r.year === currentYear
+    );
+    const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+    const prevYear = currentMonth === 1 ? currentYear - 1 : currentYear;
+    const prevMonthRecord = records.find(
+      (r) => r.month === prevMonth && r.year === prevYear
+    );
+
+    // Get referral info
+    const referralCount = await db.user.count({
+      where: { referredBy: user.referralCode },
+    });
+
+    // Stats per company
+    const companyStats = companies.map((c) => {
+      const companyRecords = records.filter((r) => r.companyId === c.id);
+      const companyTotals = companyRecords.reduce(
         (acc, r) => ({
           totalExpected: acc.totalExpected + r.totalExpected,
           totalReceived: acc.totalReceived + r.totalReceived,
           totalHMRC: acc.totalHMRC + r.totalHMRC,
           totalDue: acc.totalDue + r.totalDue,
-          workedHours: acc.workedHours + r.workedHours,
         }),
-        { totalExpected: 0, totalReceived: 0, totalHMRC: 0, totalDue: 0, workedHours: 0 }
+        { totalExpected: 0, totalReceived: 0, totalHMRC: 0, totalDue: 0 }
       );
+      const latestRecord = companyRecords[0] || null;
+      return {
+        id: c.id,
+        name: c.name,
+        recordCount: c._count.paymentRecords,
+        totals: companyTotals,
+        latestStatus: latestRecord?.status || null,
+      };
+    });
 
-      // Recent records (last 10)
-      const recentRecords = allRecords.slice(0, 10);
-
-      return NextResponse.json({
-        role: 'ADMIN',
-        stats: {
-          totalEmployees,
-          totalRecords,
-          pendingCount,
-          paidCount,
-          ...grandTotals,
-        },
-        recentRecords,
-      });
-    } else {
-      // Employee dashboard stats
-      const records = await db.paymentRecord.findMany({
-        where: { userId: user.id },
-        orderBy: [{ year: 'desc' }, { month: 'desc' }],
-      });
-
-      const totals = records.reduce(
-        (acc, r) => ({
-          totalExpected: acc.totalExpected + r.totalExpected,
-          totalReceived: acc.totalReceived + r.totalReceived,
-          totalHMRC: acc.totalHMRC + r.totalHMRC,
-          totalDue: acc.totalDue + r.totalDue,
-          workedHours: acc.workedHours + r.workedHours,
-        }),
-        { totalExpected: 0, totalReceived: 0, totalHMRC: 0, totalDue: 0, workedHours: 0 }
-      );
-
-      const pendingCount = records.filter((r) => r.status === 'PENDING').length;
-      const recentRecords = records.slice(0, 6);
-
-      // Current month vs previous
-      const now = new Date();
-      const currentMonth = now.getMonth() + 1;
-      const currentYear = now.getFullYear();
-      const currentMonthRecord = records.find(
-        (r) => r.month === currentMonth && r.year === currentYear
-      );
-      const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
-      const prevYear = currentMonth === 1 ? currentYear - 1 : currentYear;
-      const prevMonthRecord = records.find(
-        (r) => r.month === prevMonth && r.year === prevYear
-      );
-
-      return NextResponse.json({
-        role: 'EMPLOYEE',
-        stats: {
-          totalRecords: records.length,
-          pendingCount,
-          ...totals,
-        },
-        recentRecords,
-        comparison: {
-          current: currentMonthRecord || null,
-          previous: prevMonthRecord || null,
-        },
-      });
-    }
+    return NextResponse.json({
+      stats: {
+        totalRecords: records.length,
+        pendingCount,
+        paidCount,
+        ...totals,
+      },
+      companies,
+      companyStats,
+      recentRecords,
+      comparison: {
+        current: currentMonthRecord || null,
+        previous: prevMonthRecord || null,
+      },
+      referralInfo: {
+        referralCode: user.referralCode,
+        referralCount,
+        isPremium: user.isPremium,
+      },
+    });
   } catch (error) {
     console.error('Dashboard error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

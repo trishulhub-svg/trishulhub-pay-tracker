@@ -7,8 +7,8 @@ import path from 'path';
 export async function POST(request: NextRequest) {
   try {
     const user = await getSession();
-    if (!user || user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: user ? 403 : 401 });
+    if (!user) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
     const formData = await request.formData();
@@ -19,9 +19,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'File and recordId are required' }, { status: 400 });
     }
 
-    // Check record exists
+    // Check record exists and belongs to user
     const record = await db.paymentRecord.findUnique({ where: { id: recordId } });
-    if (!record) {
+    if (!record || record.userId !== user.id) {
       return NextResponse.json({ error: 'Payment record not found' }, { status: 404 });
     }
 

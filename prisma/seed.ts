@@ -4,38 +4,44 @@ import { hashPassword } from '../src/lib/auth';
 const prisma = new PrismaClient();
 
 async function main() {
-  // Create admin user
-  const adminPassword = await hashPassword('admin123');
-  const admin = await prisma.user.upsert({
-    where: { email: 'admin@greencare.com' },
+  // Create demo user - the TrishulHub owner
+  const demoPassword = await hashPassword('demo123');
+  const demo = await prisma.user.upsert({
+    where: { email: 'demo@trishulhub.com' },
     update: {},
     create: {
-      email: 'admin@greencare.com',
-      name: 'Admin',
-      password: adminPassword,
-      role: 'ADMIN',
-      isActive: true,
+      email: 'demo@trishulhub.com',
+      name: 'TrishulHub Demo',
+      password: demoPassword,
+      referralCode: 'TRISHUL-DEMO',
+      isPremium: true,
     },
   });
-  console.log('Admin user created:', admin.email);
+  console.log('Demo user created:', demo.email);
 
-  // Create a demo employee
-  const empPassword = await hashPassword('employee123');
-  const employee = await prisma.user.upsert({
-    where: { email: 'employee@greencare.com' },
+  // Create companies for the demo user
+  const greenCare = await prisma.company.upsert({
+    where: { userId_name: { userId: demo.id, name: 'Green Care' } },
     update: {},
     create: {
-      email: 'employee@greencare.com',
-      name: 'John Employee',
-      password: empPassword,
-      role: 'EMPLOYEE',
-      isActive: true,
+      name: 'Green Care',
+      userId: demo.id,
     },
   });
-  console.log('Demo employee created:', employee.email);
+  console.log('Company created:', greenCare.name);
 
-  // Create some demo payment records for the employee
-  const months = [
+  const trishulHub = await prisma.company.upsert({
+    where: { userId_name: { userId: demo.id, name: 'TrishulHub' } },
+    update: {},
+    create: {
+      name: 'TrishulHub',
+      userId: demo.id,
+    },
+  });
+  console.log('Company created:', trishulHub.name);
+
+  // Create demo payment records for Green Care
+  const greenCareRecords = [
     { month: 4, year: 2025, expected: 725, received: 725, hmrc: 580, hours: 58 },
     { month: 5, year: 2025, expected: 606.25, received: 606.25, hmrc: 485, hours: 48.5 },
     { month: 6, year: 2025, expected: 1143.75, received: 885.42, hmrc: 915, hours: 91.5 },
@@ -50,14 +56,15 @@ async function main() {
     { month: 3, year: 2026, expected: 960, received: 0, hmrc: 768, hours: 76.8 },
   ];
 
-  for (const m of months) {
+  for (const m of greenCareRecords) {
     const totalDue = m.expected - m.received;
     const status = m.received >= m.expected ? 'PAID' : 'PENDING';
     await prisma.paymentRecord.upsert({
-      where: { userId_month_year: { userId: employee.id, month: m.month, year: m.year } },
+      where: { userId_companyId_month_year: { userId: demo.id, companyId: greenCare.id, month: m.month, year: m.year } },
       update: {},
       create: {
-        userId: employee.id,
+        userId: demo.id,
+        companyId: greenCare.id,
         month: m.month,
         year: m.year,
         totalExpected: m.expected,
@@ -69,7 +76,36 @@ async function main() {
       },
     });
   }
-  console.log('Demo payment records created');
+  console.log('Green Care payment records created');
+
+  // Create demo payment records for TrishulHub
+  const trishulHubRecords = [
+    { month: 1, year: 2026, expected: 2000, received: 2000, hmrc: 1600, hours: 160 },
+    { month: 2, year: 2026, expected: 2000, received: 2000, hmrc: 1600, hours: 160 },
+    { month: 3, year: 2026, expected: 2000, received: 1500, hmrc: 1600, hours: 160 },
+  ];
+
+  for (const m of trishulHubRecords) {
+    const totalDue = m.expected - m.received;
+    const status = m.received >= m.expected ? 'PAID' : 'PENDING';
+    await prisma.paymentRecord.upsert({
+      where: { userId_companyId_month_year: { userId: demo.id, companyId: trishulHub.id, month: m.month, year: m.year } },
+      update: {},
+      create: {
+        userId: demo.id,
+        companyId: trishulHub.id,
+        month: m.month,
+        year: m.year,
+        totalExpected: m.expected,
+        totalReceived: m.received,
+        totalHMRC: m.hmrc,
+        totalDue: totalDue > 0 ? totalDue : 0,
+        workedHours: m.hours,
+        status: status,
+      },
+    });
+  }
+  console.log('TrishulHub payment records created');
 }
 
 main()

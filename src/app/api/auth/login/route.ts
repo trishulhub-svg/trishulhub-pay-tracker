@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
 
     const user = await db.user.findUnique({ where: { email } });
 
-    if (!user || !user.isActive) {
+    if (!user) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
@@ -26,7 +26,8 @@ export async function POST(request: NextRequest) {
       id: user.id,
       email: user.email,
       name: user.name,
-      role: user.role,
+      isPremium: user.isPremium,
+      referralCode: user.referralCode,
     };
 
     const token = createSessionToken(sessionUser);

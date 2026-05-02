@@ -1,12 +1,28 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
+import { db } from '@/lib/db';
 
 export async function GET() {
   try {
-    const user = await getSession();
-    if (!user) {
+    const sessionUser = await getSession();
+    if (!sessionUser) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
+
+    // Get fresh user data from DB in case isPremium changed
+    const freshUser = await db.user.findUnique({
+      where: { id: sessionUser.id },
+      select: { isPremium: true, referralCode: true, name: true, email: true },
+    });
+
+    const user = {
+      id: sessionUser.id,
+      email: freshUser?.email ?? sessionUser.email,
+      name: freshUser?.name ?? sessionUser.name,
+      isPremium: freshUser?.isPremium ?? sessionUser.isPremium,
+      referralCode: freshUser?.referralCode ?? sessionUser.referralCode,
+    };
+
     return NextResponse.json({ user });
   } catch (error) {
     console.error('Session error:', error);

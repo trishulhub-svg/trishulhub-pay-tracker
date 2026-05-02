@@ -4,11 +4,12 @@ export interface SessionUser {
   id: string;
   email: string;
   name: string;
-  role: string;
+  isPremium: boolean;
+  referralCode: string;
 }
 
-type AuthView = 'login' | 'forgot';
-type CurrentView = 'dashboard' | 'records' | 'add-record' | 'edit-record' | 'users' | 'settings';
+type AuthView = 'login' | 'signup';
+type CurrentView = 'dashboard' | 'records' | 'add-record' | 'edit-record' | 'companies' | 'add-company' | 'settings' | 'referrals';
 
 interface AppState {
   // Auth
@@ -22,7 +23,7 @@ interface AppState {
   
   // Selections
   selectedRecordId: string | null;
-  selectedUserId: string | null;
+  selectedCompanyId: string | null;
   
   // Actions
   setAuthView: (view: AuthView) => void;
@@ -31,7 +32,7 @@ interface AppState {
   setCurrentView: (view: CurrentView) => void;
   setSidebarOpen: (open: boolean) => void;
   setSelectedRecordId: (id: string | null) => void;
-  setSelectedUserId: (id: string | null) => void;
+  setSelectedCompanyId: (id: string | null) => void;
   logout: () => void;
 }
 
@@ -42,20 +43,20 @@ export const useAppStore = create<AppState>((set) => ({
   currentView: 'dashboard',
   sidebarOpen: true,
   selectedRecordId: null,
-  selectedUserId: null,
+  selectedCompanyId: null,
   
   setAuthView: (view) => set({ authView: view }),
   setUser: (user) => set({ user }),
   setIsLoading: (loading) => set({ isLoading: loading }),
-  setCurrentView: (view) => set({ currentView: view, selectedRecordId: null, selectedUserId: null }),
+  setCurrentView: (view) => set({ currentView: view, selectedRecordId: null }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setSelectedRecordId: (id) => set({ selectedRecordId: id }),
-  setSelectedUserId: (id) => set({ selectedUserId: id }),
+  setSelectedCompanyId: (id) => set({ selectedCompanyId: id }),
   logout: () => set({ 
     user: null, 
     authView: 'login', 
     currentView: 'dashboard',
     selectedRecordId: null,
-    selectedUserId: null,
+    selectedCompanyId: null,
   }),
 }));
