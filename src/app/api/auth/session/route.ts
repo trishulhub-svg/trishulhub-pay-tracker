@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getSession } from '@/lib/session';
+import { getSession, createSessionToken } from '@/lib/session';
 import { db } from '@/lib/db';
 
 export async function GET() {
@@ -31,7 +31,28 @@ export async function GET() {
       role: freshUser?.role ?? sessionUser.role ?? 'USER',
     };
 
-    return NextResponse.json({ user });
+    const response = NextResponse.json({ user });
+
+    // Update session cookie if isPremium, role, name, or referralCode changed
+    const needsUpdate =
+      user.isPremium !== sessionUser.isPremium ||
+      user.role !== sessionUser.role ||
+      user.name !== sessionUser.name ||
+      user.referralCode !== sessionUser.referralCode ||
+      user.email !== sessionUser.email;
+
+    if (needsUpdate) {
+      const newToken = createSessionToken(user);
+      response.cookies.set('session', newToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 24, // 24 hours
+        path: '/',
+      });
+    }
+
+    return response;
   } catch (error) {
     console.error('Session error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
