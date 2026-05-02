@@ -330,6 +330,17 @@ export const user = {
     const prisma = getPrismaClient()
     return prisma.user.update(args as any)
   },
+
+  async delete(args: { where: { id: string } }) {
+    if (useTurso()) {
+      const client = getTursoClient()
+      const existing = await this.findUnique({ where: { id: args.where.id } })
+      await client.execute({ sql: 'DELETE FROM User WHERE id = ?', args: [args.where.id] })
+      return existing
+    }
+    const prisma = getPrismaClient()
+    return prisma.user.delete(args as any)
+  },
 }
 
 // ==================== COMPANY ====================

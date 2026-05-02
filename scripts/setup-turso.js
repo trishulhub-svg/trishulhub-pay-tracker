@@ -71,7 +71,7 @@ async function main() {
       workedHours REAL NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'PENDING',
       notes TEXT,
-      paySlpUrl TEXT,
+      paySlipUrl TEXT,
       paySlipName TEXT,
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -73,8 +73,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
 
-    // Use provided payRate, or fall back to company's payRate
-    const shiftPayRate = payRate !== undefined ? (parseFloat(payRate) || 0) : (company.payRate || 0);
+    // Use provided payRate, or fall back to effective pay rate from history, then company's payRate
+    let shiftPayRate = company.payRate || 0;
+    if (payRate !== undefined) {
+      // User explicitly provided a custom rate for this shift
+      shiftPayRate = parseFloat(payRate) || 0;
+    } else {
+      // Check pay rate history for the most recent effective rate on or before this shift date
+      try {
+        const rateHistory = await db.payRateHistory.findMany({
+          where: { companyId },
+          orderBy: { effectiveFrom: 'desc' },
+        });
+        // Find the most recent rate that's effective on or before this shift date
+        const effectiveRate = rateHistory.find((r: any) => r.effectiveFrom <= date);
+        if (effectiveRate) {
+          shiftPayRate = effectiveRate.payRate;
+        }
+      } catch {
+        // If pay rate history lookup fails, fall back to company rate
+      }
+    }
 
     // Calculate total hours
     const [startH, startM] = startTime.split(':').map(Number);

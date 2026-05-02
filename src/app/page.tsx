@@ -676,14 +676,14 @@ function AuthView({
           animate={{ opacity: 1, y: 0 }}
           className="flex flex-col items-center mb-8"
         >
-          <Image src="/logo.png" alt="" width={72} height={72} className="shrink-0 mb-3" priority />
+          <Image src="/logo.png" alt="TrishulHub" width={96} height={96} className="shrink-0 mb-4" priority />
           <div className="text-center">
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-green-600 bg-clip-text text-transparent leading-tight">
+            <h1 className="text-3xl font-extrabold bg-gradient-to-r from-blue-600 to-green-600 bg-clip-text text-transparent leading-tight tracking-tight">
               TrishulHub
             </h1>
-            <p className="text-sm text-muted-foreground font-semibold tracking-wide mt-0.5">Pay Tracker</p>
+            <p className="text-lg text-muted-foreground font-semibold tracking-widest mt-1 uppercase">Pay Tracker</p>
           </div>
-          <p className="text-muted-foreground text-sm mt-2">Track your salary payments — Free forever</p>
+          <p className="text-muted-foreground text-sm mt-3">Track your salary payments — Free forever</p>
         </motion.div>
 
         <AnimatePresence mode="wait">
@@ -1429,7 +1429,7 @@ function MobileBottomNav({
     { id: 'records', label: 'Records', icon: FileText },
     { id: 'shifts', label: 'Shifts', icon: CalendarDays },
     { id: 'referrals', label: 'Referrals', icon: Users },
-    { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'settings', label: 'More', icon: Settings },
   ];
 
   // Add admin nav item for admin users on mobile
@@ -1440,7 +1440,7 @@ function MobileBottomNav({
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-md border-t border-border md:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
       <div className="flex items-center justify-around h-16 px-1">
-        {navItems.slice(0, 5).map((item) => {
+        {navItems.slice(0, user.role === 'ADMIN' ? 4 : 5).map((item) => {
           const Icon = item.icon;
           const isActive = currentView === item.id;
           return (
@@ -1456,18 +1456,29 @@ function MobileBottomNav({
             </button>
           );
         })}
-        {/* Admin button - compact, separate from main nav if present */}
-        {user.role === 'ADMIN' && (
-          <button
-            onClick={() => setCurrentView('admin')}
-            className={`flex flex-col items-center justify-center gap-0.5 min-w-[36px] min-h-[44px] py-1 transition-colors rounded-lg ${
-              currentView === 'admin' ? 'text-purple-600 dark:text-purple-400' : 'text-muted-foreground'
-            }`}
-          >
-            <Shield className="h-4 w-4" />
-            <span className="text-[9px] font-medium">Admin</span>
-          </button>
-        )}
+        {/* Admin & Settings section */}
+        {user.role === 'ADMIN' ? (
+          <div className="flex items-center">
+            <button
+              onClick={() => setCurrentView('admin')}
+              className={`flex flex-col items-center justify-center gap-0.5 min-w-[40px] min-h-[44px] py-1 transition-colors rounded-lg ${
+                currentView === 'admin' ? 'text-purple-600 dark:text-purple-400' : 'text-muted-foreground'
+              }`}
+            >
+              <Shield className="h-5 w-5" />
+              <span className="text-[9px] font-medium">Admin</span>
+            </button>
+            <button
+              onClick={() => setCurrentView('settings')}
+              className={`flex flex-col items-center justify-center gap-0.5 min-w-[40px] min-h-[44px] py-1 transition-colors rounded-lg ${
+                currentView === 'settings' ? 'text-blue-600 dark:text-blue-400' : 'text-muted-foreground'
+              }`}
+            >
+              <Settings className="h-5 w-5" />
+              <span className="text-[9px] font-medium">More</span>
+            </button>
+          </div>
+        ) : null}
       </div>
     </nav>
   );
@@ -2178,6 +2189,10 @@ function CompaniesView() {
   const [updatePayRateId, setUpdatePayRateId] = useState<string | null>(null);
   const [newPayRate, setNewPayRate] = useState('');
   const [effectiveFrom, setEffectiveFrom] = useState('');
+  const [effectiveDay, setEffectiveDay] = useState('1');
+  const [effectiveMonth, setEffectiveMonth] = useState(String(new Date().getMonth() + 1));
+  const [effectiveYear, setEffectiveYear] = useState(String(new Date().getFullYear()));
+  const [useDatePicker, setUseDatePicker] = useState(false);
   const [payRateLoading, setPayRateLoading] = useState(false);
 
   useEffect(() => { fetchCompanies(); }, []);
@@ -2219,17 +2234,31 @@ function CompaniesView() {
     setPayRateLoading(true);
     try {
       const body: any = { payRate: parseFloat(newPayRate) || 0 };
-      if (effectiveFrom) {
-        body.effectiveFrom = effectiveFrom;
+      let effectiveDate = '';
+      if (useDatePicker && effectiveFrom) {
+        effectiveDate = effectiveFrom;
+      } else if (!useDatePicker) {
+        // Build date from day/month/year selectors
+        const d = parseInt(effectiveDay);
+        const m = parseInt(effectiveMonth);
+        const y = parseInt(effectiveYear);
+        effectiveDate = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      }
+      if (effectiveDate) {
+        body.effectiveFrom = effectiveDate;
       }
       await apiFetch(`/api/companies/${updatePayRateId}`, {
         method: 'PUT',
         body: JSON.stringify(body),
       });
-      toast.success(effectiveFrom ? `Pay rate will change from ${effectiveFrom}` : 'Pay rate updated');
+      toast.success(effectiveDate ? `Pay rate will change from ${effectiveDate}` : 'Pay rate updated');
       setUpdatePayRateId(null);
       setNewPayRate('');
       setEffectiveFrom('');
+      setEffectiveDay('1');
+      setEffectiveMonth(String(new Date().getMonth() + 1));
+      setEffectiveYear(String(new Date().getFullYear()));
+      setUseDatePicker(false);
       fetchCompanies();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to update pay rate');
@@ -2296,7 +2325,7 @@ function CompaniesView() {
                     </div>
                   </div>
                   <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" onClick={() => { setUpdatePayRateId(c.id); setNewPayRate(c.payRate.toString()); setEffectiveFrom(''); }} className="h-10 w-10" title="Update pay rate">
+                    <Button variant="ghost" size="icon" onClick={() => { setUpdatePayRateId(c.id); setNewPayRate(c.payRate.toString()); setEffectiveFrom(''); setEffectiveDay('1'); setEffectiveMonth(String(new Date().getMonth() + 1)); setEffectiveYear(String(new Date().getFullYear())); setUseDatePicker(false); }} className="h-10 w-10" title="Update pay rate">
                       <PoundSterling className="h-4 w-4" />
                     </Button>
                     <Button variant="ghost" size="icon" onClick={() => handleEdit(c)} className="h-10 w-10">
@@ -2333,7 +2362,7 @@ function CompaniesView() {
       </Dialog>
 
       {/* Update pay rate dialog */}
-      <Dialog open={!!updatePayRateId} onOpenChange={(v) => { if (!v) { setUpdatePayRateId(null); setNewPayRate(''); setEffectiveFrom(''); } }}>
+      <Dialog open={!!updatePayRateId} onOpenChange={(v) => { if (!v) { setUpdatePayRateId(null); setNewPayRate(''); setEffectiveFrom(''); setUseDatePicker(false); } }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Update Pay Rate</DialogTitle>
@@ -2347,17 +2376,61 @@ function CompaniesView() {
                 <Input type="number" step="0.01" min="0" value={newPayRate} onChange={(e) => setNewPayRate(e.target.value)} className="pl-10 h-12" placeholder="e.g. 12.50" />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>Effective From (Optional)</Label>
-              <Input type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} className="h-12" />
-              <p className="text-xs text-muted-foreground">Leave blank to apply immediately. If set, this rate will apply from the selected date.</p>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label>Effective From</Label>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Exact date</span>
+                  <Switch checked={useDatePicker} onCheckedChange={setUseDatePicker} />
+                </div>
+              </div>
+              {useDatePicker ? (
+                <Input type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} className="h-12" />
+              ) : (
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Day</Label>
+                    <Select value={effectiveDay} onValueChange={setEffectiveDay}>
+                      <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                          <SelectItem key={d} value={String(d)}>{d}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Month</Label>
+                    <Select value={effectiveMonth} onValueChange={setEffectiveMonth}>
+                      <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {MONTHS.map((m, i) => (
+                          <SelectItem key={i} value={String(i + 1)}>{m}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Year</Label>
+                    <Select value={effectiveYear} onValueChange={setEffectiveYear}>
+                      <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() + i).map((y) => (
+                          <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">Leave as today to apply immediately. If a future date is set, this rate will apply from that date for all new shifts.</p>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setUpdatePayRateId(null); setNewPayRate(''); setEffectiveFrom(''); }}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setUpdatePayRateId(null); setNewPayRate(''); setEffectiveFrom(''); setUseDatePicker(false); }}>Cancel</Button>
             <Button onClick={handleUpdatePayRate} disabled={payRateLoading} className="bg-gradient-to-r from-blue-600 to-green-600 text-white">
               {payRateLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <PoundSterling className="h-4 w-4 mr-2" />}
-              {effectiveFrom ? `Apply from ${effectiveFrom}` : 'Update Pay Rate'}
+              {useDatePicker && effectiveFrom ? `Apply from ${effectiveFrom}` : !useDatePicker ? `Apply from ${effectiveDay} ${MONTHS[parseInt(effectiveMonth) - 1]} ${effectiveYear}` : 'Update Pay Rate'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -3456,6 +3529,11 @@ function SettingsView({ user, onLogout, theme, setTheme }: { user: SessionUser; 
           <Button variant="ghost" className="w-full justify-start h-12 min-h-[44px]" onClick={() => setCurrentView('referrals')}>
             <Users className="h-4 w-4 mr-3 text-muted-foreground" /> Referral Programme
           </Button>
+          {user.role === 'ADMIN' && (
+            <Button variant="ghost" className="w-full justify-start h-12 min-h-[44px] text-purple-600 dark:text-purple-400" onClick={() => setCurrentView('admin')}>
+              <Shield className="h-4 w-4 mr-3" /> Admin Dashboard
+            </Button>
+          )}
         </CardContent>
       </Card>
 
@@ -4036,33 +4114,35 @@ function PremiumFeaturePopup({ open, onClose, user }: { open: boolean; onClose: 
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <div className="mx-auto mb-2">
-            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
-              <Star className="h-8 w-8 text-white" />
+            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-amber-400 via-orange-500 to-red-500 flex items-center justify-center shadow-lg shadow-orange-500/30">
+              <Star className="h-10 w-10 text-white" />
             </div>
           </div>
-          <DialogTitle className="text-center text-xl">Unlock Premium Features</DialogTitle>
-          <DialogDescription className="text-center">
-            Refer a friend and get Premium for lifetime — free!
+          <DialogTitle className="text-center text-2xl font-bold">Unlock All Premium Features</DialogTitle>
+          <DialogDescription className="text-center text-base">
+            Refer just <strong>one friend</strong> and get <strong>all premium features for lifetime</strong> — completely free!
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
           {/* Premium benefits */}
-          <div className="space-y-2 rounded-lg border border-amber-200 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-950/30 p-4">
-            <h4 className="font-semibold text-amber-900 dark:text-amber-200 text-sm">Premium Benefits</h4>
-            <ul className="space-y-1.5 text-xs text-amber-800 dark:text-amber-300">
-              <li className="flex items-center gap-2"><Check className="h-3 w-3" /> Download shift rota for any date range</li>
-              <li className="flex items-center gap-2"><Check className="h-3 w-3" /> Auto-generated monthly rota PDFs</li>
-              <li className="flex items-center gap-2"><Check className="h-3 w-3" /> Add unlimited companies</li>
-              <li className="flex items-center gap-2"><Check className="h-3 w-3" /> Email notifications for rota ready</li>
-              <li className="flex items-center gap-2"><Check className="h-3 w-3" /> Priority support</li>
+          <div className="space-y-2.5 rounded-xl border border-amber-200 dark:border-amber-500/40 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/20 p-4">
+            <h4 className="font-bold text-amber-900 dark:text-amber-200 text-sm flex items-center gap-1.5">
+              <Star className="h-4 w-4" /> Premium Benefits Include
+            </h4>
+            <ul className="space-y-2 text-xs text-amber-800 dark:text-amber-300">
+              <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" /> Download shift rota for any custom date range</li>
+              <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" /> Auto-generated monthly rota PDFs delivered to your account</li>
+              <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" /> Email notifications when monthly rota is ready</li>
+              <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" /> Add unlimited companies</li>
+              <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" /> Priority support &amp; early access to new features</li>
             </ul>
           </div>
 
           {/* Referral code */}
           <div className="text-center space-y-3">
-            <p className="text-sm text-muted-foreground">Share your referral code with a friend. When they sign up, you get Premium!</p>
-            <div className="flex items-center gap-2 p-3 rounded-lg border border-border bg-muted/50">
-              <span className="font-mono text-lg font-bold text-foreground flex-1 text-center">{user.referralCode}</span>
+            <p className="text-sm text-muted-foreground">Share your unique referral code. When they sign up, you get <strong className="text-foreground">Premium for life!</strong></p>
+            <div className="flex items-center gap-2 p-3 rounded-xl border-2 border-dashed border-primary/30 bg-primary/5">
+              <span className="font-mono text-lg font-bold text-foreground flex-1 text-center tracking-wider">{user.referralCode}</span>
               <Button variant="outline" size="sm" onClick={copyCode} className="min-h-[44px]">
                 {copiedCode ? <Check className="h-4 w-4 text-green-600 dark:text-green-400" /> : <Copy className="h-4 w-4" />}
               </Button>
@@ -4070,9 +4150,13 @@ function PremiumFeaturePopup({ open, onClose, user }: { open: boolean; onClose: 
           </div>
 
           {/* Share button */}
-          <Button onClick={shareLink} className="w-full h-12 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white">
-            <Share2 className="h-4 w-4 mr-2" /> Share & Unlock Premium
+          <Button onClick={shareLink} className="w-full h-14 text-base font-semibold bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 hover:from-amber-600 hover:via-orange-600 hover:to-red-600 text-white shadow-lg shadow-orange-500/25">
+            <Share2 className="h-5 w-5 mr-2" /> Refer &amp; Unlock Premium for Life
           </Button>
+
+          <p className="text-center text-xs text-muted-foreground">
+            Your friend also gets a great app — everyone wins!
+          </p>
         </div>
       </DialogContent>
     </Dialog>

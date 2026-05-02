@@ -71,42 +71,33 @@ export async function PATCH(request: NextRequest) {
 
     if (action === 'delete') {
       // Permanently delete user and all related data
-      // Delete in order: shifts, payment records, companies, OTP codes, then user
+      // Delete in order: shifts, payment records, pay rate history, companies, OTP codes, then user
+
+      // 1. Delete all shifts for this user
       const userShifts = await db.shift.findMany({ where: { userId } });
       for (const s of userShifts) {
         await db.shift.delete({ where: { id: s.id } });
       }
 
+      // 2. Delete all payment records for this user
       const userRecords = await db.paymentRecord.findMany({ where: { userId } });
       for (const r of userRecords) {
         await db.paymentRecord.delete({ where: { id: r.id } });
       }
 
+      // 3. Delete all companies (and their pay rate history) for this user
       const userCompanies = await db.company.findMany({ where: { userId } });
       for (const c of userCompanies) {
+        // Delete pay rate history for this company
+        await db.payRateHistory.deleteMany({ where: { companyId: c.id } });
         await db.company.delete({ where: { id: c.id } });
       }
 
-      await db.user.update({
-        where: { id: userId },
-        data: { deactivated: false }, // Clear flag before delete to avoid issues
-      });
+      // 4. Delete OTP codes for this user
+      await db.otpCode.deleteMany({ where: { email: (await db.user.findUnique({ where: { id: userId } }))?.email || '' } });
 
-      // Delete OTP codes for this user's email
-      const targetUser = await db.user.findUnique({ where: { id: userId } });
-      if (targetUser) {
-        // We can't easily delete OTP by userId, but the user deletion will cascade
-      }
-
-      // Finally delete the user
-      // Since we may not have cascade deletes in Turso, we handle it manually above
-      const client = (await import('@libsql/client')).createClient({
-        url: process.env.TURSO_DATABASE_URL!,
-        authToken: process.env.TURSO_AUTH_TOKEN!,
-      });
-      await client.execute({ sql: 'DELETE FROM OtpCode WHERE userId = ?', args: [userId] });
-      await client.execute({ sql: 'DELETE FROM User WHERE id = ?', args: [userId] });
-      client.close();
+      // 5. Finally delete the user
+      await db.user.delete({ where: { id: userId } });
 
       return NextResponse.json({ success: true, message: 'User permanently deleted' });
     }
