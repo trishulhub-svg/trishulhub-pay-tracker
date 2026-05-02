@@ -1,8 +1,14 @@
 import { createClient, type Client } from '@libsql/client'
-import { PrismaClient } from '@prisma/client'
+
+// ============================================================
+// IMPORTANT: PrismaClient is NOT imported at the top level.
+// It's loaded lazily via require() only when running local dev
+// with SQLite. This prevents Prisma from trying to connect
+// or validate DATABASE_URL on Vercel where only Turso is used.
+// ============================================================
 
 const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined
+  prisma: any | undefined
 }
 
 // ============================================================
@@ -12,14 +18,23 @@ let tursoClient: Client | null = null
 
 function getTursoClient(): Client {
   if (!tursoClient) {
-    const url = process.env.TURSO_DATABASE_URL!
-    const authToken = process.env.TURSO_AUTH_TOKEN!
+    const url = process.env.TURSO_DATABASE_URL
+    const authToken = process.env.TURSO_AUTH_TOKEN
+
+    if (!url || url === 'undefined') {
+      throw new Error('[DB] TURSO_DATABASE_URL is not set or is invalid. Please set it in your Vercel environment variables.')
+    }
+    if (!authToken || authToken === 'undefined') {
+      throw new Error('[DB] TURSO_AUTH_TOKEN is not set or is invalid. Please set it in your Vercel environment variables.')
+    }
+
+    console.log('[DB] Connecting to Turso:', url.substring(0, 40) + '...')
     tursoClient = createClient({ url, authToken })
   }
   return tursoClient
 }
 
-// Check if we should use Turso
+// Check if we should use Turso (production on Vercel)
 function useTurso(): boolean {
   const url = process.env.TURSO_DATABASE_URL
   const token = process.env.TURSO_AUTH_TOKEN
@@ -27,10 +42,15 @@ function useTurso(): boolean {
 }
 
 // ============================================================
-// Local SQLite (Prisma) for development
+// Local SQLite (Prisma) for development - LAZY LOADED
+// Only loaded when NOT using Turso (i.e., local development)
 // ============================================================
-function getPrismaClient(): PrismaClient {
+function getPrismaClient(): any {
   if (!globalForPrisma.prisma) {
+    // Lazy require - PrismaClient is only loaded when actually needed
+    // This prevents "URL_INVALID" errors on Vercel where DATABASE_URL
+    // might be a file: path that doesn't exist in serverless
+    const { PrismaClient } = require('@prisma/client')
     globalForPrisma.prisma = new PrismaClient({ log: ['query'] })
   }
   return globalForPrisma.prisma
