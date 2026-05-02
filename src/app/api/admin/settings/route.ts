@@ -13,7 +13,18 @@ const BREVO_SETTING_KEYS = [
   'BREVO_SMTP_PORT',
 ];
 
-// GET /api/admin/settings — fetch all Brevo settings (mask sensitive values)
+// AI-related setting keys for data import feature
+const AI_SETTING_KEYS = [
+  'ZAI_API_KEY',
+  'ZAI_MODEL',
+];
+
+const ALL_SETTING_KEYS = [...BREVO_SETTING_KEYS, ...AI_SETTING_KEYS];
+
+// Keys that should be masked (sensitive)
+const SENSITIVE_KEYS = ['BREVO_API_KEY', 'ZAI_API_KEY'];
+
+// GET /api/admin/settings — fetch all settings (mask sensitive values)
 export async function GET() {
   try {
     const user = await getSession();
@@ -26,19 +37,18 @@ export async function GET() {
     // Build response with both DB values and env var fallbacks
     const settings: Record<string, { value: string; source: 'database' | 'env' | 'default'; masked: string }> = {};
 
-    for (const key of BREVO_SETTING_KEYS) {
+    for (const key of ALL_SETTING_KEYS) {
       const dbValue = allSettings[key];
       const envValue = process.env[key] || '';
       const value = dbValue || envValue;
       const source = dbValue ? 'database' : envValue ? 'env' : 'default';
 
-      // Mask sensitive values for display (show first 4 and last 4 chars)
+      // Mask sensitive values for display
       let masked = '';
       if (value) {
-        if (key === 'BREVO_API_KEY' && value.length > 12) {
+        if (SENSITIVE_KEYS.includes(key) && value.length > 12) {
           masked = value.substring(0, 6) + '••••••••' + value.substring(value.length - 4);
         } else if (key === 'BREVO_SMTP_LOGIN') {
-          // Show email partially
           const atIndex = value.indexOf('@');
           if (atIndex > 2) {
             masked = value.substring(0, 3) + '•••' + value.substring(atIndex);
@@ -46,7 +56,7 @@ export async function GET() {
             masked = value;
           }
         } else {
-          masked = value; // Non-sensitive fields show full value
+          masked = value;
         }
       }
 
@@ -60,7 +70,7 @@ export async function GET() {
   }
 }
 
-// PUT /api/admin/settings — update Brevo settings
+// PUT /api/admin/settings — update settings
 export async function PUT(request: Request) {
   try {
     const user = await getSession();
@@ -75,14 +85,14 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Settings object is required' }, { status: 400 });
     }
 
-    // Only allow updating known Brevo keys
+    // Only allow updating known setting keys
     const updates: string[] = [];
     for (const [key, value] of Object.entries(settings)) {
-      if (!BREVO_SETTING_KEYS.includes(key)) {
-        continue; // Skip unknown keys
+      if (!ALL_SETTING_KEYS.includes(key)) {
+        continue;
       }
       if (typeof value !== 'string') {
-        continue; // Skip non-string values
+        continue;
       }
       // Skip empty values (don't save empty strings, delete instead)
       if (!value.trim()) {

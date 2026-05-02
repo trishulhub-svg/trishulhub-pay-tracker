@@ -12,7 +12,7 @@ import {
   Clock, Building2, TrendingUp, PoundSterling, BarChart3,
   Shield, X, UserPlus, Star, Info,
   Loader2, Mail, Lock, User, KeyRound, ExternalLink, CheckCircle2,
-  FileCheck, Monitor, Save, Server
+  FileCheck, Monitor, Save, Server, Upload, FileUp, Sparkles, Brain, Trash
 } from 'lucide-react';
 import { useAppStore, SessionUser } from '@/lib/store';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -649,6 +649,7 @@ export default function TrishulHubPayTracker() {
               {currentView === 'companies' && <CompaniesView />}
               {currentView === 'add-company' && <CompanyFormView />}
               {currentView === 'shifts' && <ShiftsView user={user} />}
+              {currentView === 'import' && user.isPremium && <ImportView user={user} />}
               {currentView === 'referrals' && <ReferralsView user={user} />}
               {currentView === 'settings' && <SettingsView user={user} onLogout={handleLogout} theme={theme} setTheme={setTheme} />}
               {currentView === 'admin' && <AdminView />}
@@ -1350,6 +1351,7 @@ function DesktopSidebar({
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'records', label: 'Records', icon: FileText },
     { id: 'shifts', label: 'Shifts', icon: CalendarDays },
+    { id: 'import', label: 'Import', icon: FileUp, premiumOnly: true },
     { id: 'referrals', label: 'Referrals', icon: Users },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
@@ -1384,7 +1386,7 @@ function DesktopSidebar({
         )}
       </div>
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {navItems.map((item) => {
+        {navItems.filter(item => !item.premiumOnly || user.isPremium).map((item) => {
           const Icon = item.icon;
           const isActive = currentView === item.id;
           return (
@@ -1456,6 +1458,9 @@ function MobileBottomNav({
     navItems.push({ id: 'admin', label: 'Admin', icon: Shield });
   }
 
+  // Show import for premium users
+  const showImport = user.isPremium;
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-md border-t border-border md:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
       <div className="flex items-center justify-around h-16 px-1">
@@ -1475,6 +1480,18 @@ function MobileBottomNav({
             </button>
           );
         })}
+        {/* Import button for premium users */}
+        {showImport && (
+          <button
+            onClick={() => setCurrentView('import')}
+            className={`flex flex-col items-center justify-center gap-0.5 min-w-[48px] min-h-[44px] py-1 transition-colors rounded-lg ${
+              currentView === 'import' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'
+            }`}
+          >
+            <FileUp className="h-5 w-5" />
+            <span className="text-[10px] font-medium">Import</span>
+          </button>
+        )}
         {/* Admin & Settings section */}
         {user.role === 'ADMIN' ? (
           <div className="flex items-center">
@@ -3578,7 +3595,7 @@ function SettingsView({ user, onLogout, theme, setTheme }: { user: SessionUser; 
 // ADMIN VIEW
 // ============================================================
 function AdminView() {
-  const [adminTab, setAdminTab] = useState<'stats' | 'smtp' | 'users'>('stats');
+  const [adminTab, setAdminTab] = useState<'stats' | 'smtp' | 'ai' | 'users'>('stats');
   const [data, setData] = useState<AdminData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -3623,6 +3640,14 @@ function AdminView() {
           }`}
         >
           <Mail className="h-3.5 w-3.5" /> SMTP
+        </button>
+        <button
+          onClick={() => setAdminTab('ai')}
+          className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
+            adminTab === 'ai' ? 'bg-card text-foreground shadow-sm border border-border' : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Brain className="h-3.5 w-3.5" /> AI
         </button>
         <button
           onClick={() => setAdminTab('users')}
@@ -3720,6 +3745,9 @@ function AdminView() {
 
       {/* SMTP Settings Tab */}
       {adminTab === 'smtp' && <SmtpSettingsView />}
+
+      {/* AI Settings Tab */}
+      {adminTab === 'ai' && <AiSettingsView />}
 
       {/* Users Management Tab */}
       {adminTab === 'users' && <AdminUsersView />}
@@ -4304,6 +4332,602 @@ function PremiumFeaturePopup({ open, onClose, user }: { open: boolean; onClose: 
         {content}
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ============================================================
+// AI SETTINGS VIEW (inside Admin tab)
+// ============================================================
+function AiSettingsView() {
+  const [settings, setSettings] = useState<Record<string, { value: string; source: string; masked: string }>>({});
+  const [form, setForm] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  useEffect(() => { fetchSettings(); }, []);
+
+  const fetchSettings = async () => {
+    setLoading(true);
+    try {
+      const data = await apiFetch('/api/admin/settings');
+      setSettings(data.settings);
+      const formValues: Record<string, string> = {};
+      for (const [key, info] of Object.entries(data.settings as Record<string, { value: string; source: string; masked: string }>)) {
+        formValues[key] = info.value || '';
+      }
+      setForm(formValues);
+    } catch {
+      toast.error('Failed to load AI settings');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const result = await apiFetch('/api/admin/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ settings: form }),
+      });
+      toast.success(result.message || 'Settings saved successfully');
+      fetchSettings();
+    } catch (err) {
+      toast.error('Failed to save settings');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const apiKey = form.ZAI_API_KEY;
+      if (!apiKey) {
+        setTestResult({ success: false, message: 'Please enter an API key first' });
+        return;
+      }
+      const model = form.ZAI_MODEL || 'glm-4-flash';
+      const res = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: 'Say "AI connection successful" in exactly those words.' }],
+          max_tokens: 20,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const content = data.choices?.[0]?.message?.content || '';
+        setTestResult({ success: true, message: `Connected! AI responded: "${content}"` });
+      } else {
+        const errText = await res.text();
+        setTestResult({ success: false, message: `HTTP ${res.status}: ${errText.substring(0, 200)}` });
+      }
+    } catch (e) {
+      setTestResult({ success: false, message: e instanceof Error ? e.message : 'Connection failed' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  if (loading) return <LoadingSkeleton />;
+
+  const hasApiKey = !!(form.ZAI_API_KEY || settings.ZAI_API_KEY?.value);
+
+  return (
+    <div className="space-y-4">
+      {/* Info banner */}
+      <div className="rounded-lg border border-purple-200 dark:border-purple-500/40 bg-purple-50 dark:bg-purple-950/60 p-4">
+        <div className="flex gap-3">
+          <Brain className="h-5 w-5 text-purple-600 dark:text-purple-300 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-purple-900 dark:text-purple-200">Z.AI API Configuration</p>
+            <p className="text-xs text-purple-700 dark:text-purple-400 leading-relaxed">
+              This API key powers the AI data import feature for premium users. It enables extracting shift and payment data from PDF and DOCX files.
+              Uses the Z.AI (BigModel/GLM) API — the free GLM-4-Flash model works great for this.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Current status */}
+      <div className="flex items-center gap-2">
+        <div className={`h-2.5 w-2.5 rounded-full shrink-0 ${hasApiKey ? 'bg-green-500 dark:bg-green-400' : 'bg-red-500 dark:bg-red-400'}`} />
+        <span className="text-sm text-muted-foreground">
+          {hasApiKey ? 'AI import service configured' : 'AI import not configured — PDF/DOCX imports will not work'}
+        </span>
+      </div>
+
+      {/* Settings form */}
+      <Card className="border-border">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Sparkles className="h-4 w-4" /> AI Credentials
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Get your free API key from{' '}
+            <a href="https://open.bigmodel.cn" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
+              open.bigmodel.cn <ExternalLink className="h-3 w-3 inline" />
+            </a>
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* API Key */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-sm flex items-center gap-1.5 shrink-0">
+                <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
+                Z.AI API Key
+              </Label>
+              {settings.ZAI_API_KEY?.value && (
+                <span className={`text-[10px] font-medium ${settings.ZAI_API_KEY.source === 'database' ? 'text-green-600 dark:text-green-400' : 'text-blue-600 dark:text-blue-400'}`}>
+                  Source: {settings.ZAI_API_KEY.source === 'database' ? 'Database' : 'Env Variable'}
+                </span>
+              )}
+            </div>
+            <div className="relative">
+              <Input
+                type={showApiKey ? 'text' : 'password'}
+                placeholder="Enter your Z.AI API key"
+                value={form.ZAI_API_KEY || ''}
+                onChange={(e) => setForm({ ...form, ZAI_API_KEY: e.target.value })}
+                className="h-10 pr-10"
+              />
+              <button type="button" onClick={() => setShowApiKey(!showApiKey)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+            {settings.ZAI_API_KEY?.masked && (
+              <p className="text-[10px] text-muted-foreground">Current: {settings.ZAI_API_KEY.masked}</p>
+            )}
+          </div>
+
+          {/* Model */}
+          <div className="space-y-1.5">
+            <Label className="text-sm flex items-center gap-1.5">
+              <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
+              Model
+            </Label>
+            <Select value={form.ZAI_MODEL || 'glm-4-flash'} onValueChange={(v) => setForm({ ...form, ZAI_MODEL: v })}>
+              <SelectTrigger className="h-10">
+                <SelectValue placeholder="Select model" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="glm-4-flash">GLM-4-Flash (Free - Recommended)</SelectItem>
+                <SelectItem value="glm-4-flashx">GLM-4-FlashX (Free - Faster)</SelectItem>
+                <SelectItem value="glm-4-plus">GLM-4-Plus (Paid - More Accurate)</SelectItem>
+                <SelectItem value="glm-4">GLM-4 (Paid - Best Quality)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-muted-foreground">Free models work great for data extraction</p>
+          </div>
+
+          {/* Test & Save buttons */}
+          <div className="flex gap-2">
+            <Button onClick={handleTest} variant="outline" className="flex-1 h-10" disabled={testing || !form.ZAI_API_KEY}>
+              {testing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
+              Test Connection
+            </Button>
+            <Button onClick={handleSave} className="flex-1 h-10" disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+              Save Settings
+            </Button>
+          </div>
+
+          {/* Test result */}
+          {testResult && (
+            <div className={`p-3 rounded-lg text-sm ${testResult.success ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-300' : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'}`}>
+              {testResult.success ? <CheckCircle2 className="h-4 w-4 inline mr-1.5" /> : <AlertCircle className="h-4 w-4 inline mr-1.5" />}
+              {testResult.message}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================
+// IMPORT VIEW (Premium only)
+// ============================================================
+function ImportView({ user }: { user: SessionUser }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [importType, setImportType] = useState<'auto' | 'shifts' | 'payments'>('auto');
+  const [uploading, setUploading] = useState(false);
+  const [imported, setImported] = useState<{
+    shifts: any[];
+    payments: any[];
+    warnings: string[];
+    fileType: string;
+    fileName: string;
+  } | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [importResult, setImportResult] = useState<any>(null);
+  const [createCompanies, setCreateCompanies] = useState(true);
+  const [editedShifts, setEditedShifts] = useState<any[]>([]);
+  const [editedPayments, setEditedPayments] = useState<any[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files?.[0];
+    if (selected) {
+      const name = selected.name.toLowerCase();
+      if (!name.endsWith('.csv') && !name.endsWith('.pdf') && !name.endsWith('.docx') && !name.endsWith('.doc')) {
+        toast.error('Please select a CSV, PDF, or DOCX file');
+        return;
+      }
+      if (selected.size > 5 * 1024 * 1024) {
+        toast.error('File size must be less than 5MB');
+        return;
+      }
+      setFile(selected);
+      setImported(null);
+      setImportResult(null);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!file) return;
+    setUploading(true);
+    setImported(null);
+    setImportResult(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('importType', importType);
+
+      const res = await fetch('/api/import', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Import failed');
+      }
+
+      setImported({
+        shifts: data.shifts || [],
+        payments: data.payments || [],
+        warnings: data.warnings || [],
+        fileType: data.fileType,
+        fileName: data.fileName,
+      });
+      setEditedShifts(data.shifts || []);
+      setEditedPayments(data.payments || []);
+
+      if ((data.shifts?.length || 0) === 0 && (data.payments?.length || 0) === 0) {
+        toast.warning('No shift or payment data found in the file');
+      } else {
+        toast.success(`Extracted ${data.shifts?.length || 0} shifts and ${data.payments?.length || 0} payments`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to import file');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleConfirmImport = async () => {
+    setConfirming(true);
+    try {
+      const result = await apiFetch('/api/import/confirm', {
+        method: 'POST',
+        body: JSON.stringify({
+          shifts: editedShifts,
+          payments: editedPayments,
+          createCompanies,
+        }),
+      });
+      setImportResult(result.results);
+      toast.success(`Imported ${result.results.shiftsCreated} shifts and ${result.results.paymentsCreated} payments!`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save imported data');
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  const handleRemoveShift = (index: number) => {
+    setEditedShifts(editedShifts.filter((_: any, i: number) => i !== index));
+  };
+
+  const handleRemovePayment = (index: number) => {
+    setEditedPayments(editedPayments.filter((_: any, i: number) => i !== index));
+  };
+
+  const handleReset = () => {
+    setFile(null);
+    setImported(null);
+    setImportResult(null);
+    setEditedShifts([]);
+    setEditedPayments([]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  return (
+    <div className="p-4 md:p-6 md:ml-64 space-y-6 max-w-4xl overflow-x-hidden">
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
+          <FileUp className="h-5 w-5" /> Import Data
+          <Badge className="bg-gradient-to-r from-amber-500 to-orange-500 text-white text-[10px]">
+            <Star className="h-3 w-3 mr-0.5" /> Premium
+          </Badge>
+        </h1>
+      </div>
+
+      {/* Import result */}
+      {importResult && (
+        <Card className="border-green-200 dark:border-green-800">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-green-700 dark:text-green-300">Import Complete!</p>
+                <div className="text-xs text-green-600 dark:text-green-400 space-y-0.5">
+                  <p>{importResult.shiftsCreated} shift(s) created</p>
+                  <p>{importResult.paymentsCreated} payment(s) created</p>
+                  {importResult.companiesCreated > 0 && <p>{importResult.companiesCreated} new company/companies created</p>}
+                  {importResult.errors?.length > 0 && importResult.errors.map((e: string, i: number) => (
+                    <p key={i} className="text-amber-600 dark:text-amber-400">⚠ {e}</p>
+                  ))}
+                </div>
+                <Button onClick={handleReset} size="sm" className="mt-2" variant="outline">
+                  Import Another File
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Upload section */}
+      {!importResult && (
+        <>
+          <Card className="border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Upload className="h-4 w-4" /> Upload File
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Upload CSV, PDF, or DOCX files containing your shift or payment data. AI-powered extraction for PDF and DOCX.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Import type selector */}
+              <div className="space-y-1.5">
+                <Label className="text-sm">What data are you importing?</Label>
+                <Select value={importType} onValueChange={(v) => setImportType(v as 'auto' | 'shifts' | 'payments')}>
+                  <SelectTrigger className="h-10">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">Auto-detect (Recommended)</SelectItem>
+                    <SelectItem value="shifts">Shifts only</SelectItem>
+                    <SelectItem value="payments">Payment records only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* File input */}
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+                  file ? 'border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/30' : 'border-border hover:border-blue-400 dark:hover:border-blue-600 hover:bg-muted/50'
+                }`}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,.pdf,.docx,.doc"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+                {file ? (
+                  <div className="space-y-2">
+                    <FileCheck className="h-10 w-10 text-green-600 dark:text-green-400 mx-auto" />
+                    <p className="text-sm font-medium text-foreground">{file.name}</p>
+                    <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(1)} KB</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Upload className="h-10 w-10 text-muted-foreground mx-auto" />
+                    <p className="text-sm font-medium text-foreground">Click to upload or drag & drop</p>
+                    <p className="text-xs text-muted-foreground">CSV, PDF, or DOCX (max 5MB)</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Supported formats info */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="text-center p-2 rounded-lg bg-muted/50">
+                  <p className="text-xs font-semibold text-foreground">CSV</p>
+                  <p className="text-[10px] text-muted-foreground">Direct parsing</p>
+                </div>
+                <div className="text-center p-2 rounded-lg bg-muted/50">
+                  <p className="text-xs font-semibold text-foreground">PDF</p>
+                  <p className="text-[10px] text-muted-foreground">AI extraction</p>
+                </div>
+                <div className="text-center p-2 rounded-lg bg-muted/50">
+                  <p className="text-xs font-semibold text-foreground">DOCX</p>
+                  <p className="text-[10px] text-muted-foreground">AI extraction</p>
+                </div>
+              </div>
+
+              <Button onClick={handleUpload} className="w-full h-12" disabled={!file || uploading}>
+                {uploading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Extracting data...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    Extract Data from File
+                  </>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Warnings */}
+          {imported && imported.warnings.length > 0 && (
+            <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-4">
+              <div className="flex gap-3">
+                <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">Import Warnings</p>
+                  {imported.warnings.map((w, i) => (
+                    <p key={i} className="text-xs text-amber-600 dark:text-amber-400">{w}</p>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Preview extracted data */}
+          {imported && (editedShifts.length > 0 || editedPayments.length > 0) && (
+            <div className="space-y-4">
+              {/* Shifts preview */}
+              {editedShifts.length > 0 && (
+                <Card className="border-border">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <CalendarDays className="h-4 w-4" /> Extracted Shifts ({editedShifts.length})
+                    </CardTitle>
+                    <CardDescription className="text-xs">Review and remove any incorrect entries before importing</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {editedShifts.map((shift, i) => (
+                        <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border border-border">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-medium">{shift.date}</span>
+                              <Badge variant="outline" className="text-[10px]">{shift.shiftType || 'REGULAR'}</Badge>
+                              {!shift.companyMatched && shift.companyName && (
+                                <Badge className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">New company</Badge>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {shift.startTime} - {shift.endTime} | {shift.totalHours}h | £{shift.payRate}/hr
+                              {shift.companyName && ` | ${shift.companyName}`}
+                              {shift.breakMinutes > 0 && ` | ${shift.breakMinutes}min break`}
+                            </p>
+                          </div>
+                          <button onClick={() => handleRemoveShift(i)} className="shrink-0 p-1.5 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-600 dark:hover:text-red-400 min-h-[44px] min-w-[44px] flex items-center justify-center">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Payments preview */}
+              {editedPayments.length > 0 && (
+                <Card className="border-border">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <PoundSterling className="h-4 w-4" /> Extracted Payments ({editedPayments.length})
+                    </CardTitle>
+                    <CardDescription className="text-xs">Review and remove any incorrect entries before importing</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {editedPayments.map((payment, i) => (
+                        <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border border-border">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-medium">Month {payment.month}/{payment.year}</span>
+                              {!payment.companyMatched && payment.companyName && (
+                                <Badge className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">New company</Badge>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Expected: £{payment.totalExpected} | Received: £{payment.totalReceived}
+                              {payment.totalHMRC > 0 && ` | HMRC: £${payment.totalHMRC}`}
+                              {payment.totalDue > 0 && ` | Due: £${payment.totalDue}`}
+                              {payment.companyName && ` | ${payment.companyName}`}
+                              {payment.workedHours > 0 && ` | ${payment.workedHours}h worked`}
+                            </p>
+                          </div>
+                          <button onClick={() => handleRemovePayment(i)} className="shrink-0 p-1.5 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-600 dark:hover:text-red-400 min-h-[44px] min-w-[44px] flex items-center justify-center">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Import options & confirm */}
+              <Card className="border-border">
+                <CardContent className="p-4 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="create-companies"
+                      checked={createCompanies}
+                      onCheckedChange={(c) => setCreateCompanies(!!c)}
+                    />
+                    <label htmlFor="create-companies" className="text-sm text-muted-foreground cursor-pointer">
+                      Auto-create new companies for unmatched names
+                    </label>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button onClick={handleReset} variant="outline" className="flex-1 h-10" disabled={confirming}>
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleConfirmImport}
+                      className="flex-1 h-10 bg-gradient-to-r from-blue-600 to-green-600 hover:from-blue-700 hover:to-green-700 text-white"
+                      disabled={confirming || (editedShifts.length === 0 && editedPayments.length === 0)}
+                    >
+                      {confirming ? (
+                        <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Importing...</>
+                      ) : (
+                        <><Check className="h-4 w-4 mr-2" /> Confirm Import ({editedShifts.length + editedPayments.length} items)</>
+                      )}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* No data found */}
+          {imported && editedShifts.length === 0 && editedPayments.length === 0 && (
+            <Card className="border-border">
+              <CardContent className="p-4 text-center">
+                <AlertCircle className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm font-medium text-foreground">No data found</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Could not extract any shift or payment data from this file. Make sure the file contains relevant data.
+                </p>
+                <Button onClick={handleReset} size="sm" className="mt-3" variant="outline">
+                  Try Another File
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+
+      {/* Bottom padding for mobile nav */}
+      <div className="h-20 md:hidden" />
+    </div>
   );
 }
 

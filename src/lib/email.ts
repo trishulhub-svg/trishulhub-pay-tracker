@@ -29,6 +29,11 @@ async function getBrevoSettings(): Promise<Record<string, string>> {
   }
 }
 
+// Export for use in other modules (e.g., import API for AI settings)
+export async function getSettingsFromDB(): Promise<Record<string, string>> {
+  return getBrevoSettings();
+}
+
 // Get a Brevo config value: DB first, then env var, then default
 function pickValue(dbSettings: Record<string, string>, key: string, envDefault: string = ''): string {
   return dbSettings[key] || process.env[key] || envDefault;
