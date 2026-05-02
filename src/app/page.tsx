@@ -3193,7 +3193,7 @@ function AdminView() {
         <button
           onClick={() => setAdminTab('stats')}
           className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-            adminTab === 'stats' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            adminTab === 'stats' ? 'bg-card text-foreground shadow-sm border border-border' : 'text-muted-foreground hover:text-foreground'
           }`}
         >
           <BarChart3 className="h-4 w-4" /> Stats
@@ -3201,7 +3201,7 @@ function AdminView() {
         <button
           onClick={() => setAdminTab('smtp')}
           className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-            adminTab === 'smtp' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            adminTab === 'smtp' ? 'bg-card text-foreground shadow-sm border border-border' : 'text-muted-foreground hover:text-foreground'
           }`}
         >
           <Mail className="h-4 w-4" /> SMTP Settings
@@ -3360,24 +3360,22 @@ function SmtpSettingsView() {
   return (
     <div className="space-y-4">
       {/* Info banner */}
-      <Card className="border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
-        <CardContent className="p-4">
-          <div className="flex gap-3">
-            <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-blue-900 dark:text-blue-200">Brevo SMTP Configuration</p>
-              <p className="text-xs text-blue-700 dark:text-blue-300">
-                These credentials are used to send OTP verification and password reset emails.
-                Settings saved here take priority over environment variables. Values are stored securely in the database.
-              </p>
-            </div>
+      <div className="rounded-lg border border-blue-200 dark:border-blue-700/50 bg-blue-50 dark:bg-blue-950/40 p-4">
+        <div className="flex gap-3">
+          <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-blue-900 dark:text-blue-100">Brevo SMTP Configuration</p>
+            <p className="text-xs text-blue-800 dark:text-blue-300 leading-relaxed">
+              These credentials are used to send OTP verification and password reset emails.
+              Settings saved here take priority over environment variables. Values are stored securely in the database.
+            </p>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Current status */}
       <div className="flex items-center gap-2">
-        <div className={`h-2.5 w-2.5 rounded-full ${hasAnyConfig ? 'bg-green-500' : 'bg-red-500'}`} />
+        <div className={`h-2.5 w-2.5 rounded-full shrink-0 ${hasAnyConfig ? 'bg-green-500 dark:bg-green-400' : 'bg-red-500 dark:bg-red-400'}`} />
         <span className="text-sm text-muted-foreground">
           {hasAnyConfig ? 'Email service configured' : 'Email service not configured — OTP emails will not be sent'}
         </span>
@@ -3450,20 +3448,18 @@ function SmtpSettingsView() {
       </Card>
 
       {/* Security note */}
-      <Card className="border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20">
-        <CardContent className="p-4">
-          <div className="flex gap-3">
-            <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-amber-900 dark:text-amber-200">Security Notice</p>
-              <p className="text-xs text-amber-700 dark:text-amber-300">
-                Your API key is stored encrypted in the database and masked in the UI. Only enter a new value when you want to update it.
-                If you leave the API Key field blank, the current saved value (or environment variable) will continue to be used.
-              </p>
-            </div>
+      <div className="rounded-lg border border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-950/40 p-4">
+        <div className="flex gap-3">
+          <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">Security Notice</p>
+            <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+              Your API key is stored encrypted in the database and masked in the UI. Only enter a new value when you want to update it.
+              If you leave the API Key field blank, the current saved value (or environment variable) will continue to be used.
+            </p>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

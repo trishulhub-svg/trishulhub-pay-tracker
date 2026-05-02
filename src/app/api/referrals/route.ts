@@ -23,7 +23,7 @@ export async function GET() {
     return NextResponse.json({
       referralCode: fullUser?.referralCode || user.referralCode,
       referralCount,
-      isPremium: fullUser?.isPremium ?? user.isPremium,
+      isPremium: !!(fullUser?.isPremium ?? user.isPremium),
       referredBy: fullUser?.referredBy || null,
     });
   } catch (error) {

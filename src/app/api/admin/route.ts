@@ -46,7 +46,7 @@ export async function GET() {
     });
 
     // Recent signups (last 10) - no personal data, just dates and plan type
-    const recentSignups = await db.user.findMany({
+    const recentSignupsRaw = await db.user.findMany({
       select: {
         createdAt: true,
         isPremium: true,
@@ -56,8 +56,14 @@ export async function GET() {
       take: 10,
     });
 
+    // Ensure boolean fields are properly converted
+    const recentSignups = recentSignupsRaw.map((s: any) => ({
+      createdAt: s.createdAt,
+      isPremium: !!s.isPremium,
+      referredBy: s.referredBy || null,
+    }));
+
     // Monthly signups trend (last 6 months)
-    const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
     const monthlySignups = [];
     for (let i = 5; i >= 0; i--) {
       const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);

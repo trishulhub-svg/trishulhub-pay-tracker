@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const companyId = searchParams.get('companyId');
 
-    // Get user's companies
+    // Get user's companies with payment record counts
     const companies = await db.company.findMany({
       where: { userId: user.id },
       include: {
@@ -27,22 +27,17 @@ export async function GET(request: NextRequest) {
 
     const records = await db.paymentRecord.findMany({
       where,
-      include: {
-        company: {
-          select: { id: true, name: true },
-        },
-      },
       orderBy: [{ year: 'desc' }, { month: 'desc' }],
     });
 
     // Calculate totals
     const totals = records.reduce(
       (acc, r) => ({
-        totalExpected: acc.totalExpected + r.totalExpected,
-        totalReceived: acc.totalReceived + r.totalReceived,
-        totalHMRC: acc.totalHMRC + r.totalHMRC,
-        totalDue: acc.totalDue + r.totalDue,
-        workedHours: acc.workedHours + r.workedHours,
+        totalExpected: acc.totalExpected + Number(r.totalExpected || 0),
+        totalReceived: acc.totalReceived + Number(r.totalReceived || 0),
+        totalHMRC: acc.totalHMRC + Number(r.totalHMRC || 0),
+        totalDue: acc.totalDue + Number(r.totalDue || 0),
+        workedHours: acc.workedHours + Number(r.workedHours || 0),
       }),
       { totalExpected: 0, totalReceived: 0, totalHMRC: 0, totalDue: 0, workedHours: 0 }
     );
@@ -56,12 +51,12 @@ export async function GET(request: NextRequest) {
     const currentMonth = now.getMonth() + 1;
     const currentYear = now.getFullYear();
     const currentMonthRecord = records.find(
-      (r) => r.month === currentMonth && r.year === currentYear
+      (r) => Number(r.month) === currentMonth && Number(r.year) === currentYear
     );
     const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
     const prevYear = currentMonth === 1 ? currentYear - 1 : currentYear;
     const prevMonthRecord = records.find(
-      (r) => r.month === prevMonth && r.year === prevYear
+      (r) => Number(r.month) === prevMonth && Number(r.year) === prevYear
     );
 
     // Get referral info
@@ -84,22 +79,22 @@ export async function GET(request: NextRequest) {
 
     const shiftSummary = currentMonthShifts.reduce(
       (acc, s) => ({
-        totalHours: acc.totalHours + s.totalHours,
+        totalHours: acc.totalHours + Number(s.totalHours || 0),
         totalShifts: acc.totalShifts + 1,
-        totalBreakMinutes: acc.totalBreakMinutes + s.breakMinutes,
+        totalBreakMinutes: acc.totalBreakMinutes + Number(s.breakMinutes || 0),
       }),
       { totalHours: 0, totalShifts: 0, totalBreakMinutes: 0 }
     );
 
     // Stats per company
-    const companyStats = companies.map((c) => {
+    const companyStats = companies.map((c: any) => {
       const companyRecords = records.filter((r) => r.companyId === c.id);
       const companyTotals = companyRecords.reduce(
         (acc, r) => ({
-          totalExpected: acc.totalExpected + r.totalExpected,
-          totalReceived: acc.totalReceived + r.totalReceived,
-          totalHMRC: acc.totalHMRC + r.totalHMRC,
-          totalDue: acc.totalDue + r.totalDue,
+          totalExpected: acc.totalExpected + Number(r.totalExpected || 0),
+          totalReceived: acc.totalReceived + Number(r.totalReceived || 0),
+          totalHMRC: acc.totalHMRC + Number(r.totalHMRC || 0),
+          totalDue: acc.totalDue + Number(r.totalDue || 0),
         }),
         { totalExpected: 0, totalReceived: 0, totalHMRC: 0, totalDue: 0 }
       );
@@ -107,7 +102,7 @@ export async function GET(request: NextRequest) {
       return {
         id: c.id,
         name: c.name,
-        recordCount: c._count.paymentRecords,
+        recordCount: c._count?.paymentRecords ?? companyRecords.length,
         totals: companyTotals,
         latestStatus: latestRecord?.status || null,
       };

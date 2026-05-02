@@ -19,7 +19,7 @@ export async function GET() {
       id: sessionUser.id,
       email: freshUser?.email ?? sessionUser.email,
       name: freshUser?.name ?? sessionUser.name,
-      isPremium: freshUser?.isPremium ?? sessionUser.isPremium,
+      isPremium: !!(freshUser?.isPremium ?? sessionUser.isPremium),
       referralCode: freshUser?.referralCode ?? sessionUser.referralCode,
       role: freshUser?.role ?? sessionUser.role ?? 'USER',
     };

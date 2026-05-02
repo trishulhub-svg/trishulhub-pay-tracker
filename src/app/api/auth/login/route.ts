@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@libsql/client';
+import { db } from '@/lib/db';
 import { hashPassword } from '@/lib/auth';
 import { createSessionToken } from '@/lib/session';
 
@@ -11,17 +11,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Email and password are required' }, { status: 400 });
     }
 
-    // Connect directly to Turso (bypassing db.ts interface to test)
-    const url = process.env.TURSO_DATABASE_URL;
-    const authToken = process.env.TURSO_AUTH_TOKEN;
-
-    if (!url || !authToken) {
-      return NextResponse.json({ error: 'Database not configured' }, { status: 500 });
-    }
-
-    const client = createClient({ url, authToken });
-    const r = await client.execute({ sql: 'SELECT * FROM User WHERE email = ?', args: [email] });
-    const user = r.rows[0] as any || null;
+    // Use the unified db interface (works with both Turso and Prisma)
+    const user = await db.user.findUnique({ where: { email: email.toLowerCase().trim() } });
 
     if (!user) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
@@ -39,7 +30,7 @@ export async function POST(request: NextRequest) {
       id: user.id,
       email: user.email,
       name: user.name,
-      isPremium: user.isPremium === 1 ? true : user.isPremium,
+      isPremium: !!user.isPremium,
       referralCode: user.referralCode,
       role: user.role,
     };

@@ -16,10 +16,6 @@ const globalForPrisma = globalThis as unknown as {
 // ============================================================
 
 function getTursoClient(): Client {
-  // In serverless (Vercel), each function invocation may hit a different
-  // Turso replica. We create a fresh client each time to avoid stale 
-  // connections, and use HTTP (type: 'web') for proper serverless support.
-  // DO NOT cache the client in production — it causes stale reads.
   const url = process.env.TURSO_DATABASE_URL
   const authToken = process.env.TURSO_AUTH_TOKEN
 
@@ -46,9 +42,6 @@ function useTurso(): boolean {
 // ============================================================
 function getPrismaClient(): any {
   if (!globalForPrisma.prisma) {
-    // Lazy require - PrismaClient is only loaded when actually needed
-    // This prevents "URL_INVALID" errors on Vercel where DATABASE_URL
-    // might be a file: path that doesn't exist in serverless
     const { PrismaClient } = require('@prisma/client')
     globalForPrisma.prisma = new PrismaClient({ log: ['query'] })
   }
@@ -70,81 +63,151 @@ function nowISO(): string {
   return new Date().toISOString()
 }
 
+// Helper to convert boolean fields from DB (0/1 → boolean)
+function toBool(val: any): boolean {
+  return val === 1 || val === true
+}
+
+// Helper to convert JS values for SQL parameters (boolean → 0/1)
+function toSqlValue(val: any): any {
+  if (val === true) return 1
+  if (val === false) return 0
+  return val
+}
+
+// Helper to process where conditions into SQL conditions and values
+// Handles: null, { gte }, { lte }, { lt }, { not }, { contains }, { in }, and plain values
+function buildWhereConditions(where: any, colPrefix: string = ''): { conditions: string[]; values: any[] } {
+  const conditions: string[] = []
+  const values: any[] = []
+  if (!where) return { conditions, values }
+  
+  for (const [key, val] of Object.entries(where)) {
+    const col = colPrefix ? `${colPrefix}${key}` : key
+    if (val === null) {
+      conditions.push(`${col} IS NULL`)
+    } else if (val && typeof val === 'object' && 'in' in val) {
+      const placeholders = (val.in as any[]).map(() => '?').join(', ')
+      conditions.push(`${col} IN (${placeholders})`)
+      values.push(...(val.in as any[]).map(toSqlValue))
+    } else if (val && typeof val === 'object' && 'gte' in val) {
+      conditions.push(`${col} >= ?`)
+      values.push(toSqlValue(val.gte))
+    } else if (val && typeof val === 'object' && 'lte' in val) {
+      conditions.push(`${col} <= ?`)
+      values.push(toSqlValue(val.lte))
+    } else if (val && typeof val === 'object' && 'lt' in val) {
+      conditions.push(`${col} < ?`)
+      values.push(toSqlValue(val.lt))
+    } else if (val && typeof val === 'object' && 'not' in val) {
+      if (val.not === null) {
+        conditions.push(`${col} IS NOT NULL`)
+      } else {
+        conditions.push(`${col} != ?`)
+        values.push(toSqlValue(val.not))
+      }
+    } else if (val && typeof val === 'object' && 'contains' in val) {
+      conditions.push(`${col} LIKE ?`)
+      values.push(`%${val.contains}%`)
+    } else {
+      conditions.push(`${col} = ?`)
+      values.push(toSqlValue(val))
+    }
+  }
+  return { conditions, values }
+}
+
+// Helper to build ORDER BY clause from orderBy param (supports both single and array)
+function buildOrderBy(orderBy: any, prefix: string = ''): string {
+  if (!orderBy) return ''
+  const orderParts: string[] = []
+  if (Array.isArray(orderBy)) {
+    for (const ob of orderBy) {
+      for (const [field, dir] of Object.entries(ob)) {
+        orderParts.push(`${prefix}${field} ${dir === 'desc' ? 'DESC' : 'ASC'}`)
+      }
+    }
+  } else {
+    for (const [field, dir] of Object.entries(orderBy)) {
+      orderParts.push(`${prefix}${field} ${dir === 'desc' ? 'DESC' : 'ASC'}`)
+    }
+  }
+  return orderParts.length > 0 ? ` ORDER BY ${orderParts.join(', ')}` : ''
+}
+
+// Helper to map a User row from libsql to the shape Prisma would return
+function mapUserRow(row: any): any {
+  if (!row) return null
+  return {
+    ...row,
+    isPremium: toBool(row.isPremium),
+    emailVerified: toBool(row.emailVerified),
+    termsAccepted: toBool(row.termsAccepted),
+  }
+}
+
 // ==================== USER ====================
 export const user = {
-  async findUnique(where: { id?: string; email?: string; referralCode?: string }) {
+  async findUnique(args: { id?: string; email?: string; referralCode?: string; userId_name?: any; where?: any; select?: any }) {
+    const where = args.where || args
+    const select = args.select
+
     if (useTurso()) {
       const client = getTursoClient()
+      let row: any = null
+
       if (where.id) {
         const r = await client.execute({ sql: 'SELECT * FROM User WHERE id = ?', args: [where.id] })
-        return r.rows[0] as any || null
-      }
-      if (where.email) {
+        row = r.rows[0] as any || null
+      } else if (where.email) {
         const r = await client.execute({ sql: 'SELECT * FROM User WHERE email = ?', args: [where.email] })
-        return r.rows[0] as any || null
-      }
-      if (where.referralCode) {
+        row = r.rows[0] as any || null
+      } else if (where.referralCode) {
         const r = await client.execute({ sql: 'SELECT * FROM User WHERE referralCode = ?', args: [where.referralCode] })
-        return r.rows[0] as any || null
+        row = r.rows[0] as any || null
       }
-      return null
+
+      if (!row) return null
+      const mapped = mapUserRow(row)
+      if (select && typeof select === 'object') {
+        const result: any = {}
+        for (const key of Object.keys(select)) {
+          if (key in mapped) result[key] = mapped[key]
+        }
+        return result
+      }
+      return mapped
     }
     const prisma = getPrismaClient()
-    return prisma.user.findUnique({ where })
+    return prisma.user.findUnique({ where, select })
   },
 
   async findFirst(where: any) {
     if (useTurso()) {
       const client = getTursoClient()
-      const conditions: string[] = []
-      const values: any[] = []
-      for (const [key, val] of Object.entries(where)) {
-        conditions.push(`${key} = ?`)
-        values.push(val)
-      }
+      const { conditions, values } = buildWhereConditions(where)
       const sql = conditions.length > 0
         ? `SELECT * FROM User WHERE ${conditions.join(' AND ')} LIMIT 1`
         : `SELECT * FROM User LIMIT 1`
       const r = await client.execute({ sql, args: values })
-      return r.rows[0] as any || null
+      return mapUserRow(r.rows[0]) || null
     }
     const prisma = getPrismaClient()
     return prisma.user.findFirst({ where })
   },
 
-  async findMany(args?: { where?: any; orderBy?: any; take?: number; skip?: number }) {
+  async findMany(args?: { where?: any; orderBy?: any; take?: number; skip?: number; select?: any }) {
     if (useTurso()) {
       const client = getTursoClient()
-      const conditions: string[] = []
-      const values: any[] = []
-      if (args?.where) {
-        for (const [key, val] of Object.entries(args.where)) {
-          if (val && typeof val === 'object' && 'gte' in val) {
-            conditions.push(`${key} >= ?`)
-            values.push(val.gte)
-          } else if (val && typeof val === 'object' && 'lte' in val) {
-            conditions.push(`${key} <= ?`)
-            values.push(val.lte)
-          } else if (val && typeof val === 'object' && 'contains' in val) {
-            conditions.push(`${key} LIKE ?`)
-            values.push(`%${val.contains}%`)
-          } else {
-            conditions.push(`${key} = ?`)
-            values.push(val)
-          }
-        }
-      }
+      const { conditions, values } = buildWhereConditions(args?.where)
       let sql = conditions.length > 0
         ? `SELECT * FROM User WHERE ${conditions.join(' AND ')}`
         : `SELECT * FROM User`
-      if (args?.orderBy) {
-        const [field, dir] = Object.entries(args.orderBy)[0] as [string, string]
-        sql += ` ORDER BY ${field} ${dir === 'desc' ? 'DESC' : 'ASC'}`
-      }
+      sql += buildOrderBy(args?.orderBy)
       if (args?.take) sql += ` LIMIT ${args.take}`
       if (args?.skip) sql += ` OFFSET ${args.skip}`
       const r = await client.execute({ sql, args: values })
-      return r.rows as any[]
+      return r.rows.map(mapUserRow) as any[]
     }
     const prisma = getPrismaClient()
     return prisma.user.findMany(args as any)
@@ -153,22 +216,7 @@ export const user = {
   async count(args?: { where?: any }) {
     if (useTurso()) {
       const client = getTursoClient()
-      const conditions: string[] = []
-      const values: any[] = []
-      if (args?.where) {
-        for (const [key, val] of Object.entries(args.where)) {
-          if (val && typeof val === 'object' && 'gte' in val) {
-            conditions.push(`${key} >= ?`)
-            values.push(val.gte)
-          } else if (val && typeof val === 'object' && 'lte' in val) {
-            conditions.push(`${key} <= ?`)
-            values.push(val.lte)
-          } else {
-            conditions.push(`${key} = ?`)
-            values.push(val)
-          }
-        }
-      }
+      const { conditions, values } = buildWhereConditions(args?.where)
       const sql = conditions.length > 0
         ? `SELECT COUNT(*) as cnt FROM User WHERE ${conditions.join(' AND ')}`
         : `SELECT COUNT(*) as cnt FROM User`
@@ -192,7 +240,7 @@ export const user = {
       if (d.termsAcceptedAt) { fields.push('termsAcceptedAt'); values.push(typeof d.termsAcceptedAt === 'string' ? d.termsAcceptedAt : now) }
       const placeholders = fields.map(() => '?').join(', ')
       await client.execute({ sql: `INSERT INTO User (${fields.join(', ')}) VALUES (${placeholders})`, args: values })
-      return this.findUnique({ id })
+      return this.findUnique({ where: { id } })
     }
     const prisma = getPrismaClient()
     return prisma.user.create(data)
@@ -201,7 +249,7 @@ export const user = {
   async update(args: { where: { id?: string; email?: string }; data: any }) {
     if (useTurso()) {
       const client = getTursoClient()
-      const existing = await this.findUnique(args.where)
+      const existing = await this.findUnique({ where: args.where })
       if (!existing) throw new Error('User not found')
       const d = args.data
       const sets: string[] = ['updatedAt = ?']
@@ -209,11 +257,11 @@ export const user = {
       for (const [key, val] of Object.entries(d)) {
         if (key === 'updatedAt') continue
         sets.push(`${key} = ?`)
-        values.push(val === true ? 1 : val === false ? 0 : val)
+        values.push(toSqlValue(val))
       }
       values.push(existing.id)
       await client.execute({ sql: `UPDATE User SET ${sets.join(', ')} WHERE id = ?`, args: values })
-      return this.findUnique({ id: existing.id })
+      return this.findUnique({ where: { id: existing.id } })
     }
     const prisma = getPrismaClient()
     return prisma.user.update(args as any)
@@ -222,36 +270,58 @@ export const user = {
 
 // ==================== COMPANY ====================
 export const company = {
-  async findUnique(where: { id?: string }) {
+  async findUnique(args: { id?: string; userId_name?: { userId: string; name: string }; where?: any }) {
+    const where = args.where || args
+
     if (useTurso()) {
       const client = getTursoClient()
-      const r = await client.execute({ sql: 'SELECT * FROM Company WHERE id = ?', args: [where.id] })
-      return r.rows[0] as any || null
+      if (where.id) {
+        const r = await client.execute({ sql: 'SELECT * FROM Company WHERE id = ?', args: [where.id] })
+        return r.rows[0] as any || null
+      }
+      if (where.userId_name) {
+        const r = await client.execute({
+          sql: 'SELECT * FROM Company WHERE userId = ? AND name = ?',
+          args: [where.userId_name.userId, where.userId_name.name],
+        })
+        return r.rows[0] as any || null
+      }
+      return null
     }
     const prisma = getPrismaClient()
     return prisma.company.findUnique({ where })
   },
 
-  async findMany(args?: { where?: any; orderBy?: any }) {
+  async findMany(args?: { where?: any; orderBy?: any; include?: any }) {
     if (useTurso()) {
       const client = getTursoClient()
-      const conditions: string[] = []
-      const values: any[] = []
-      if (args?.where) {
-        for (const [key, val] of Object.entries(args.where)) {
-          conditions.push(`${key} = ?`)
-          values.push(val)
-        }
-      }
+      const { conditions, values } = buildWhereConditions(args?.where)
       let sql = conditions.length > 0
         ? `SELECT * FROM Company WHERE ${conditions.join(' AND ')}`
         : `SELECT * FROM Company`
-      if (args?.orderBy) {
-        const [field, dir] = Object.entries(args.orderBy)[0] as [string, string]
-        sql += ` ORDER BY ${field} ${dir === 'desc' ? 'DESC' : 'ASC'}`
-      }
+      sql += buildOrderBy(args?.orderBy)
       const r = await client.execute({ sql, args: values })
-      return r.rows as any[]
+      const companies = r.rows as any[]
+
+      // Support _count.paymentRecords via sub-count queries
+      const needsCount = args?.include?._count?.select?.paymentRecords
+      if (needsCount) {
+        const companiesWithCount = await Promise.all(companies.map(async (c) => {
+          const countResult = await client.execute({
+            sql: 'SELECT COUNT(*) as cnt FROM PaymentRecord WHERE companyId = ?',
+            args: [c.id],
+          })
+          return {
+            ...c,
+            _count: {
+              paymentRecords: Number(countResult.rows[0]?.cnt ?? 0),
+            },
+          }
+        }))
+        return companiesWithCount
+      }
+
+      return companies
     }
     const prisma = getPrismaClient()
     return prisma.company.findMany(args as any)
@@ -260,14 +330,7 @@ export const company = {
   async count(args?: { where?: any }) {
     if (useTurso()) {
       const client = getTursoClient()
-      const conditions: string[] = []
-      const values: any[] = []
-      if (args?.where) {
-        for (const [key, val] of Object.entries(args.where)) {
-          conditions.push(`${key} = ?`)
-          values.push(val)
-        }
-      }
+      const { conditions, values } = buildWhereConditions(args?.where)
       const sql = conditions.length > 0
         ? `SELECT COUNT(*) as cnt FROM Company WHERE ${conditions.join(' AND ')}`
         : `SELECT COUNT(*) as cnt FROM Company`
@@ -288,7 +351,7 @@ export const company = {
         sql: 'INSERT INTO Company (id, name, userId, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)',
         args: [id, d.name, d.userId, now, now],
       })
-      return this.findUnique({ id })
+      return this.findUnique({ where: { id } })
     }
     const prisma = getPrismaClient()
     return prisma.company.create(data)
@@ -307,7 +370,7 @@ export const company = {
       }
       values.push(args.where.id)
       await client.execute({ sql: `UPDATE Company SET ${sets.join(', ')} WHERE id = ?`, args: values })
-      return this.findUnique({ id: args.where.id })
+      return this.findUnique({ where: { id: args.where.id } })
     }
     const prisma = getPrismaClient()
     return prisma.company.update(args as any)
@@ -316,7 +379,7 @@ export const company = {
   async delete(args: { where: { id: string } }) {
     if (useTurso()) {
       const client = getTursoClient()
-      const existing = await this.findUnique({ id: args.where.id })
+      const existing = await this.findUnique({ where: { id: args.where.id } })
       await client.execute({ sql: 'DELETE FROM Company WHERE id = ?', args: [args.where.id] })
       return existing
     }
@@ -327,14 +390,29 @@ export const company = {
 
 // ==================== PAYMENT RECORD ====================
 export const paymentRecord = {
-  async findUnique(where: { id?: string }) {
+  async findUnique(args: { id?: string; userId_companyId_month_year?: { userId: string; companyId: string; month: number; year: number }; where?: any }) {
+    const where = args.where || args
+
     if (useTurso()) {
       const client = getTursoClient()
-      const r = await client.execute({
-        sql: `SELECT pr.*, c.name as "company.name", c.id as "company.id" FROM PaymentRecord pr JOIN Company c ON pr.companyId = c.id WHERE pr.id = ?`,
-        args: [where.id],
-      })
-      const row = r.rows[0] as any
+      let row: any = null
+
+      if (where.id) {
+        const r = await client.execute({
+          sql: `SELECT pr.*, c.name as "company.name", c.id as "company.id" FROM PaymentRecord pr JOIN Company c ON pr.companyId = c.id WHERE pr.id = ?`,
+          args: [where.id],
+        })
+        row = r.rows[0] as any
+      }
+      else if (where.userId_companyId_month_year) {
+        const w = where.userId_companyId_month_year
+        const r = await client.execute({
+          sql: `SELECT pr.*, c.name as "company.name", c.id as "company.id" FROM PaymentRecord pr JOIN Company c ON pr.companyId = c.id WHERE pr.userId = ? AND pr.companyId = ? AND pr.month = ? AND pr.year = ?`,
+          args: [w.userId, w.companyId, w.month, w.year],
+        })
+        row = r.rows[0] as any
+      }
+
       if (!row) return null
       return { ...row, company: { id: row['company.id'], name: row['company.name'] } }
     }
@@ -345,33 +423,11 @@ export const paymentRecord = {
   async findMany(args?: { where?: any; orderBy?: any; include?: any }) {
     if (useTurso()) {
       const client = getTursoClient()
-      const conditions: string[] = []
-      const values: any[] = []
-      if (args?.where) {
-        for (const [key, val] of Object.entries(args.where)) {
-          if (val && typeof val === 'object' && 'in' in val) {
-            const placeholders = val.in.map(() => '?').join(', ')
-            conditions.push(`pr.${key} IN (${placeholders})`)
-            values.push(...val.in)
-          } else if (val && typeof val === 'object' && 'gte' in val) {
-            conditions.push(`pr.${key} >= ?`)
-            values.push(val.gte)
-          } else if (val && typeof val === 'object' && 'lte' in val) {
-            conditions.push(`pr.${key} <= ?`)
-            values.push(val.lte)
-          } else {
-            conditions.push(`pr.${key} = ?`)
-            values.push(val)
-          }
-        }
-      }
+      const { conditions, values } = buildWhereConditions(args?.where, 'pr.')
       let sql = conditions.length > 0
         ? `SELECT pr.*, c.name as "company.name", c.id as "company.id" FROM PaymentRecord pr JOIN Company c ON pr.companyId = c.id WHERE ${conditions.join(' AND ')}`
         : `SELECT pr.*, c.name as "company.name", c.id as "company.id" FROM PaymentRecord pr JOIN Company c ON pr.companyId = c.id`
-      if (args?.orderBy) {
-        const [field, dir] = Object.entries(args.orderBy)[0] as [string, string]
-        sql += ` ORDER BY pr.${field} ${dir === 'desc' ? 'DESC' : 'ASC'}`
-      }
+      sql += buildOrderBy(args?.orderBy, 'pr.')
       const r = await client.execute({ sql, args: values })
       return r.rows.map((row: any) => ({
         ...row,
@@ -385,20 +441,7 @@ export const paymentRecord = {
   async count(args?: { where?: any }) {
     if (useTurso()) {
       const client = getTursoClient()
-      const conditions: string[] = []
-      const values: any[] = []
-      if (args?.where) {
-        for (const [key, val] of Object.entries(args.where)) {
-          if (val && typeof val === 'object' && 'in' in val) {
-            const placeholders = val.in.map(() => '?').join(', ')
-            conditions.push(`${key} IN (${placeholders})`)
-            values.push(...val.in)
-          } else {
-            conditions.push(`${key} = ?`)
-            values.push(val)
-          }
-        }
-      }
+      const { conditions, values } = buildWhereConditions(args?.where)
       const sql = conditions.length > 0
         ? `SELECT COUNT(*) as cnt FROM PaymentRecord WHERE ${conditions.join(' AND ')}`
         : `SELECT COUNT(*) as cnt FROM PaymentRecord`
@@ -409,7 +452,7 @@ export const paymentRecord = {
     return prisma.paymentRecord.count(args as any)
   },
 
-  async create(data: { data: any }) {
+  async create(data: { data: any; include?: any }) {
     if (useTurso()) {
       const client = getTursoClient()
       const d = data.data
@@ -420,7 +463,7 @@ export const paymentRecord = {
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [id, d.userId, d.companyId, d.month, d.year, d.totalExpected ?? 0, d.totalReceived ?? 0, d.totalHMRC ?? 0, d.totalDue ?? 0, d.workedHours ?? 0, d.status ?? 'PENDING', d.notes ?? null, now, now],
       })
-      return this.findUnique({ id })
+      return this.findUnique({ where: { id } })
     }
     const prisma = getPrismaClient()
     return prisma.paymentRecord.create(data)
@@ -435,11 +478,11 @@ export const paymentRecord = {
       for (const [key, val] of Object.entries(d)) {
         if (key === 'updatedAt') continue
         sets.push(`${key} = ?`)
-        values.push(val === true ? 1 : val === false ? 0 : val ?? null)
+        values.push(toSqlValue(val))
       }
       values.push(args.where.id)
       await client.execute({ sql: `UPDATE PaymentRecord SET ${sets.join(', ')} WHERE id = ?`, args: values })
-      return this.findUnique({ id: args.where.id })
+      return this.findUnique({ where: { id: args.where.id } })
     }
     const prisma = getPrismaClient()
     return prisma.paymentRecord.update(args as any)
@@ -448,7 +491,7 @@ export const paymentRecord = {
   async delete(args: { where: { id: string } }) {
     if (useTurso()) {
       const client = getTursoClient()
-      const existing = await this.findUnique({ id: args.where.id })
+      const existing = await this.findUnique({ where: { id: args.where.id } })
       await client.execute({ sql: 'DELETE FROM PaymentRecord WHERE id = ?', args: [args.where.id] })
       return existing
     }
@@ -459,7 +502,9 @@ export const paymentRecord = {
 
 // ==================== SHIFT ====================
 export const shift = {
-  async findUnique(where: { id?: string }) {
+  async findUnique(args: { id?: string; where?: any }) {
+    const where = args.where || args
+
     if (useTurso()) {
       const client = getTursoClient()
       const r = await client.execute({
@@ -477,33 +522,11 @@ export const shift = {
   async findMany(args?: { where?: any; orderBy?: any; include?: any }) {
     if (useTurso()) {
       const client = getTursoClient()
-      const conditions: string[] = []
-      const values: any[] = []
-      if (args?.where) {
-        for (const [key, val] of Object.entries(args.where)) {
-          if (val && typeof val === 'object' && 'in' in val) {
-            const placeholders = val.in.map(() => '?').join(', ')
-            conditions.push(`s.${key} IN (${placeholders})`)
-            values.push(...val.in)
-          } else if (val && typeof val === 'object' && 'gte' in val) {
-            conditions.push(`s.${key} >= ?`)
-            values.push(val.gte)
-          } else if (val && typeof val === 'object' && 'lte' in val) {
-            conditions.push(`s.${key} <= ?`)
-            values.push(val.lte)
-          } else {
-            conditions.push(`s.${key} = ?`)
-            values.push(val)
-          }
-        }
-      }
+      const { conditions, values } = buildWhereConditions(args?.where, 's.')
       let sql = conditions.length > 0
         ? `SELECT s.*, c.name as "company.name", c.id as "company.id" FROM Shift s JOIN Company c ON s.companyId = c.id WHERE ${conditions.join(' AND ')}`
         : `SELECT s.*, c.name as "company.name", c.id as "company.id" FROM Shift s JOIN Company c ON s.companyId = c.id`
-      if (args?.orderBy) {
-        const [field, dir] = Object.entries(args.orderBy)[0] as [string, string]
-        sql += ` ORDER BY s.${field} ${dir === 'desc' ? 'DESC' : 'ASC'}`
-      }
+      sql += buildOrderBy(args?.orderBy, 's.')
       const r = await client.execute({ sql, args: values })
       return r.rows.map((row: any) => ({
         ...row,
@@ -517,14 +540,7 @@ export const shift = {
   async count(args?: { where?: any }) {
     if (useTurso()) {
       const client = getTursoClient()
-      const conditions: string[] = []
-      const values: any[] = []
-      if (args?.where) {
-        for (const [key, val] of Object.entries(args.where)) {
-          conditions.push(`${key} = ?`)
-          values.push(val)
-        }
-      }
+      const { conditions, values } = buildWhereConditions(args?.where)
       const sql = conditions.length > 0
         ? `SELECT COUNT(*) as cnt FROM Shift WHERE ${conditions.join(' AND ')}`
         : `SELECT COUNT(*) as cnt FROM Shift`
@@ -546,7 +562,7 @@ export const shift = {
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [id, d.userId, d.companyId, d.date, d.startTime, d.endTime, d.breakMinutes ?? 0, d.totalHours ?? 0, d.shiftType ?? 'REGULAR', d.notes ?? null, now, now],
       })
-      return this.findUnique({ id })
+      return this.findUnique({ where: { id } })
     }
     const prisma = getPrismaClient()
     return prisma.shift.create(data)
@@ -561,11 +577,11 @@ export const shift = {
       for (const [key, val] of Object.entries(d)) {
         if (key === 'updatedAt') continue
         sets.push(`${key} = ?`)
-        values.push(val === true ? 1 : val === false ? 0 : val ?? null)
+        values.push(toSqlValue(val))
       }
       values.push(args.where.id)
       await client.execute({ sql: `UPDATE Shift SET ${sets.join(', ')} WHERE id = ?`, args: values })
-      return this.findUnique({ id: args.where.id })
+      return this.findUnique({ where: { id: args.where.id } })
     }
     const prisma = getPrismaClient()
     return prisma.shift.update(args as any)
@@ -574,7 +590,7 @@ export const shift = {
   async delete(args: { where: { id: string } }) {
     if (useTurso()) {
       const client = getTursoClient()
-      const existing = await this.findUnique({ id: args.where.id })
+      const existing = await this.findUnique({ where: { id: args.where.id } })
       await client.execute({ sql: 'DELETE FROM Shift WHERE id = ?', args: [args.where.id] })
       return existing
     }
@@ -602,7 +618,9 @@ export const otpCode = {
         sql: `SELECT * FROM OtpCode WHERE ${conditions.join(' AND ')} ORDER BY createdAt DESC LIMIT 1`,
         args: values,
       })
-      return r.rows[0] as any || null
+      const row = r.rows[0] as any
+      if (!row) return null
+      return { ...row, verified: toBool(row.verified) }
     }
     const prisma = getPrismaClient()
     return prisma.otpCode.findFirst(args as any)
@@ -611,14 +629,7 @@ export const otpCode = {
   async count(args?: { where?: any }) {
     if (useTurso()) {
       const client = getTursoClient()
-      const conditions: string[] = []
-      const values: any[] = []
-      if (args?.where) {
-        for (const [key, val] of Object.entries(args.where)) {
-          conditions.push(`${key} = ?`)
-          values.push(val)
-        }
-      }
+      const { conditions, values } = buildWhereConditions(args?.where)
       const sql = conditions.length > 0
         ? `SELECT COUNT(*) as cnt FROM OtpCode WHERE ${conditions.join(' AND ')}`
         : `SELECT COUNT(*) as cnt FROM OtpCode`
@@ -641,7 +652,8 @@ export const otpCode = {
         args: [id, d.email, d.code, d.type, d.verified ? 1 : 0, d.expiresAt, now, d.userId ?? null],
       })
       const r = await client.execute({ sql: 'SELECT * FROM OtpCode WHERE id = ?', args: [id] })
-      return r.rows[0] as any
+      const row = r.rows[0] as any
+      return row ? { ...row, verified: toBool(row.verified) } : row
     }
     const prisma = getPrismaClient()
     return prisma.otpCode.create(data)
@@ -655,12 +667,13 @@ export const otpCode = {
       const values: any[] = []
       for (const [key, val] of Object.entries(d)) {
         sets.push(`${key} = ?`)
-        values.push(val === true ? 1 : val === false ? 0 : val)
+        values.push(toSqlValue(val))
       }
       values.push(args.where.id)
       await client.execute({ sql: `UPDATE OtpCode SET ${sets.join(', ')} WHERE id = ?`, args: values })
       const r = await client.execute({ sql: 'SELECT * FROM OtpCode WHERE id = ?', args: [args.where.id] })
-      return r.rows[0] as any
+      const row = r.rows[0] as any
+      return row ? { ...row, verified: toBool(row.verified) } : row
     }
     const prisma = getPrismaClient()
     return prisma.otpCode.update(args as any)
