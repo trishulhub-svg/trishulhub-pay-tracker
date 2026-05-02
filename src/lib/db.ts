@@ -210,6 +210,22 @@ function mapPayRateHistoryRow(row: any): any {
   }
 }
 
+// Helper to map an ImportLog row
+function mapImportLogRow(row: any): any {
+  if (!row) return null
+  return {
+    ...row,
+    shiftsCount: Number(row.shiftsCount || 0),
+    paymentsCount: Number(row.paymentsCount || 0),
+    companiesCreated: Number(row.companiesCreated || 0),
+    reversed: toBool(row.reversed),
+    // Parse JSON arrays stored as text
+    shiftIds: typeof row.shiftIds === 'string' ? JSON.parse(row.shiftIds) : row.shiftIds || [],
+    paymentIds: typeof row.paymentIds === 'string' ? JSON.parse(row.paymentIds) : row.paymentIds || [],
+    companyIds: typeof row.companyIds === 'string' ? JSON.parse(row.companyIds) : row.companyIds || [],
+  }
+}
+
 // ==================== USER ====================
 export const user = {
   async findUnique(args: { id?: string; email?: string; referralCode?: string; userId_name?: any; where?: any; select?: any }) {
@@ -980,5 +996,171 @@ export const payRateHistory = {
   },
 }
 
+// ==================== IMPORT LOG ====================
+export const importLog = {
+  async create(data: { data: any }) {
+    if (useTurso()) {
+      const client = getTursoClient()
+      const d = data.data
+      const id = generateId()
+      const now = nowISO()
+      await client.execute({
+        sql: `INSERT INTO ImportLog (id, userId, fileName, fileType, importType, shiftsCount, paymentsCount, companiesCreated, shiftIds, paymentIds, companyIds, reversed, reversedAt, createdAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          id, d.userId, d.fileName || null, d.fileType || null, d.importType || 'auto',
+          d.shiftsCount ?? 0, d.paymentsCount ?? 0, d.companiesCreated ?? 0,
+          JSON.stringify(d.shiftIds || []), JSON.stringify(d.paymentIds || []), JSON.stringify(d.companyIds || []),
+          d.reversed ? 1 : 0, d.reversedAt ? toSqlValue(d.reversedAt) : null, now,
+        ],
+      })
+      return this.findUnique({ where: { id } })
+    }
+    const prisma = getPrismaClient()
+    return prisma.importLog.create(data)
+  },
+
+  async findUnique(args: { where: { id: string } }) {
+    if (useTurso()) {
+      const client = getTursoClient()
+      const r = await client.execute({ sql: 'SELECT * FROM ImportLog WHERE id = ?', args: [args.where.id] })
+      return mapImportLogRow(r.rows[0]) || null
+    }
+    const prisma = getPrismaClient()
+    return prisma.importLog.findUnique(args as any)
+  },
+
+  async findMany(args?: { where?: any; orderBy?: any; take?: number }) {
+    if (useTurso()) {
+      const client = getTursoClient()
+      const { conditions, values } = buildWhereConditions(args?.where)
+      let sql = conditions.length > 0
+        ? `SELECT * FROM ImportLog WHERE ${conditions.join(' AND ')}`
+        : `SELECT * FROM ImportLog`
+      sql += buildOrderBy(args?.orderBy)
+      if (args?.take) sql += ` LIMIT ${args.take}`
+      const r = await client.execute({ sql, args: values })
+      return r.rows.map(mapImportLogRow) as any[]
+    }
+    const prisma = getPrismaClient()
+    return prisma.importLog.findMany(args as any)
+  },
+
+  async update(args: { where: { id: string }; data: any }) {
+    if (useTurso()) {
+      const client = getTursoClient()
+      const d = args.data
+      const sets: string[] = []
+      const values: any[] = []
+      for (const [key, val] of Object.entries(d)) {
+        if (key === 'id' || key === 'createdAt') continue
+        sets.push(`${key} = ?`)
+        // Handle JSON fields
+        if (key === 'shiftIds' || key === 'paymentIds' || key === 'companyIds') {
+          values.push(JSON.stringify(val))
+        } else {
+          values.push(toSqlValue(val))
+        }
+      }
+      values.push(args.where.id)
+      await client.execute({ sql: `UPDATE ImportLog SET ${sets.join(', ')} WHERE id = ?`, args: values })
+      return this.findUnique({ where: { id: args.where.id } })
+    }
+    const prisma = getPrismaClient()
+    return prisma.importLog.update(args as any)
+  },
+
+  async delete(args: { where: { id: string } }) {
+    if (useTurso()) {
+      const client = getTursoClient()
+      const existing = await this.findUnique({ where: { id: args.where.id } })
+      await client.execute({ sql: 'DELETE FROM ImportLog WHERE id = ?', args: [args.where.id] })
+      return existing
+    }
+    const prisma = getPrismaClient()
+    return prisma.importLog.delete(args as any)
+  },
+}
+
+// Auto-create ImportLog table if it doesn't exist
+async function ensureImportLogTable(client: Client): Promise<void> {
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS ImportLog (
+      id TEXT PRIMARY KEY NOT NULL,
+      userId TEXT NOT NULL,
+      fileName TEXT,
+      fileType TEXT,
+      importType TEXT DEFAULT 'auto',
+      shiftsCount INTEGER DEFAULT 0,
+      paymentsCount INTEGER DEFAULT 0,
+      companiesCreated INTEGER DEFAULT 0,
+      shiftIds TEXT DEFAULT '[]',
+      paymentIds TEXT DEFAULT '[]',
+      companyIds TEXT DEFAULT '[]',
+      reversed INTEGER DEFAULT 0,
+      reversedAt DATETIME,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+  console.log('[DB] Auto-created ImportLog table')
+}
+
+// Ensure ImportLog table exists on first use
+let importLogTableEnsured = false
+const origImportLogCreate = importLog.create.bind(importLog)
+const origImportLogFindMany = importLog.findMany.bind(importLog)
+const origImportLogFindUnique = importLog.findUnique.bind(importLog)
+
+importLog.create = async (data: any) => {
+  if (useTurso() && !importLogTableEnsured) {
+    try {
+      return await origImportLogCreate(data)
+    } catch (e: any) {
+      if (String(e).includes('no such table')) {
+        const client = getTursoClient()
+        await ensureImportLogTable(client)
+        importLogTableEnsured = true
+        return await origImportLogCreate(data)
+      }
+      throw e
+    }
+  }
+  return origImportLogCreate(data)
+}
+
+importLog.findMany = async (args?: any) => {
+  if (useTurso() && !importLogTableEnsured) {
+    try {
+      return await origImportLogFindMany(args)
+    } catch (e: any) {
+      if (String(e).includes('no such table')) {
+        const client = getTursoClient()
+        await ensureImportLogTable(client)
+        importLogTableEnsured = true
+        return await origImportLogFindMany(args)
+      }
+      throw e
+    }
+  }
+  return origImportLogFindMany(args)
+}
+
+importLog.findUnique = async (args: any) => {
+  if (useTurso() && !importLogTableEnsured) {
+    try {
+      return await origImportLogFindUnique(args)
+    } catch (e: any) {
+      if (String(e).includes('no such table')) {
+        const client = getTursoClient()
+        await ensureImportLogTable(client)
+        importLogTableEnsured = true
+        return await origImportLogFindUnique(args)
+      }
+      throw e
+    }
+  }
+  return origImportLogFindUnique(args)
+}
+
 // Export as `db` for backward compatibility with existing code
-export const db = { user, company, paymentRecord, shift, otpCode, setting, payRateHistory }
+export const db = { user, company, paymentRecord, shift, otpCode, setting, payRateHistory, importLog }

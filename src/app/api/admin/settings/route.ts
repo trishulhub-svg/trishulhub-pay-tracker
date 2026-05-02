@@ -97,7 +97,11 @@ export async function PUT(request: Request) {
       }
       // Skip empty values (don't save empty strings, delete instead)
       if (!value.trim()) {
-        await db.setting.delete(key);
+        try {
+          await db.setting.delete(key);
+        } catch {
+          // Key might not exist in DB — that's fine
+        }
         updates.push(key + ' (removed)');
         continue;
       }

@@ -14,10 +14,13 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { shifts, payments, createCompanies } = body as {
+    const { shifts, payments, createCompanies, fileName, fileType, importType } = body as {
       shifts: any[];
       payments: any[];
       createCompanies: boolean;
+      fileName?: string;
+      fileType?: string;
+      importType?: string;
     };
 
     if (!shifts && !payments) {
@@ -29,7 +32,13 @@ export async function POST(request: NextRequest) {
       paymentsCreated: 0,
       companiesCreated: 0,
       errors: [] as string[],
+      importId: '' as string,
     };
+
+    // Track IDs of created items for the import log
+    const createdShiftIds: string[] = [];
+    const createdPaymentIds: string[] = [];
+    const createdCompanyIds: string[] = [];
 
     // Get user's current companies
     const existingCompanies = await db.company.findMany({ where: { userId: user.id } });
@@ -57,6 +66,7 @@ export async function POST(request: NextRequest) {
             },
           });
           companyMap.set(name.toLowerCase(), newCompany.id);
+          createdCompanyIds.push(newCompany.id);
           results.companiesCreated++;
         } catch (e) {
           results.errors.push(`Failed to create company "${name}": ${e instanceof Error ? e.message : 'Unknown error'}`);
@@ -76,7 +86,7 @@ export async function POST(request: NextRequest) {
             continue;
           }
 
-          await db.shift.create({
+          const created = await db.shift.create({
             data: {
               userId: user.id,
               companyId,
@@ -90,6 +100,7 @@ export async function POST(request: NextRequest) {
               notes: shift.notes || null,
             },
           });
+          createdShiftIds.push(created.id);
           results.shiftsCreated++;
         } catch (e) {
           results.errors.push(`Shift on ${shift.date}: ${e instanceof Error ? e.message : 'Failed to create'}`);
@@ -107,7 +118,7 @@ export async function POST(request: NextRequest) {
             continue;
           }
 
-          await db.paymentRecord.create({
+          const created = await db.paymentRecord.create({
             data: {
               userId: user.id,
               companyId,
@@ -122,6 +133,7 @@ export async function POST(request: NextRequest) {
               notes: payment.notes || null,
             },
           });
+          createdPaymentIds.push(created.id);
           results.paymentsCreated++;
         } catch (e) {
           results.errors.push(`Payment ${payment.month}/${payment.year}: ${e instanceof Error ? e.message : 'Failed to create'}`);
@@ -129,7 +141,30 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log(`[IMPORT] User ${user.email} imported ${results.shiftsCreated} shifts, ${results.paymentsCreated} payments, ${results.companiesCreated} companies`);
+    // Create an import log entry
+    try {
+      const importLogEntry = await db.importLog.create({
+        data: {
+          userId: user.id,
+          fileName: fileName || null,
+          fileType: fileType || null,
+          importType: importType || 'auto',
+          shiftsCount: results.shiftsCreated,
+          paymentsCount: results.paymentsCreated,
+          companiesCreated: results.companiesCreated,
+          shiftIds: createdShiftIds,
+          paymentIds: createdPaymentIds,
+          companyIds: createdCompanyIds,
+          reversed: false,
+        },
+      });
+      results.importId = importLogEntry.id;
+    } catch (logErr) {
+      // Import log creation failure should not block the import itself
+      console.error('[IMPORT] Failed to create import log:', logErr);
+    }
+
+    console.log(`[IMPORT] User ${user.email} imported ${results.shiftsCreated} shifts, ${results.paymentsCreated} payments, ${results.companiesCreated} companies (log: ${results.importId})`);
 
     return NextResponse.json({
       success: true,

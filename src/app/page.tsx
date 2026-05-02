@@ -4369,14 +4369,27 @@ function AiSettingsView() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      // Only send non-empty values or values that the user has explicitly changed
+      // This prevents saving masked/placeholder values back
+      const settingsToSave: Record<string, string> = {};
+      for (const [key, value] of Object.entries(form)) {
+        // Always send the value even if empty (to delete the setting)
+        // But skip if the value looks like a masked value (contains bullet characters)
+        if (typeof value === 'string' && value.includes('••••')) {
+          // This is a masked value — skip it (don't overwrite the real value)
+          continue;
+        }
+        settingsToSave[key] = value || '';
+      }
+
       const result = await apiFetch('/api/admin/settings', {
         method: 'PUT',
-        body: JSON.stringify({ settings: form }),
+        body: JSON.stringify({ settings: settingsToSave }),
       });
       toast.success(result.message || 'Settings saved successfully');
       fetchSettings();
     } catch (err) {
-      toast.error('Failed to save settings');
+      toast.error(err instanceof Error ? err.message : 'Failed to save settings');
     } finally {
       setSaving(false);
     }
@@ -4571,6 +4584,7 @@ function AiSettingsView() {
 // IMPORT VIEW (Premium only)
 // ============================================================
 function ImportView({ user }: { user: SessionUser }) {
+  const [activeTab, setActiveTab] = useState<'import' | 'history'>('import');
   const [file, setFile] = useState<File | null>(null);
   const [importType, setImportType] = useState<'auto' | 'shifts' | 'payments'>('auto');
   const [uploading, setUploading] = useState(false);
@@ -4587,6 +4601,30 @@ function ImportView({ user }: { user: SessionUser }) {
   const [editedShifts, setEditedShifts] = useState<any[]>([]);
   const [editedPayments, setEditedPayments] = useState<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Import history state
+  const [importLogs, setImportLogs] = useState<any[]>([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [reversingId, setReversingId] = useState<string | null>(null);
+  const [showReverseDialog, setShowReverseDialog] = useState<string | null>(null);
+
+  const fetchImportLogs = useCallback(async () => {
+    setLoadingLogs(true);
+    try {
+      const data = await apiFetch('/api/import/logs');
+      setImportLogs(data.logs || []);
+    } catch {
+      // Silently fail - not critical
+    } finally {
+      setLoadingLogs(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'history') {
+      fetchImportLogs();
+    }
+  }, [activeTab, fetchImportLogs]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
@@ -4657,6 +4695,9 @@ function ImportView({ user }: { user: SessionUser }) {
           shifts: editedShifts,
           payments: editedPayments,
           createCompanies,
+          fileName: imported?.fileName || file?.name || '',
+          fileType: imported?.fileType || '',
+          importType,
         }),
       });
       setImportResult(result.results);
@@ -4665,6 +4706,23 @@ function ImportView({ user }: { user: SessionUser }) {
       toast.error(err instanceof Error ? err.message : 'Failed to save imported data');
     } finally {
       setConfirming(false);
+    }
+  };
+
+  const handleReverseImport = async (importId: string) => {
+    setReversingId(importId);
+    try {
+      const result = await apiFetch('/api/import/reverse', {
+        method: 'POST',
+        body: JSON.stringify({ importId }),
+      });
+      toast.success(result.message || 'Import reversed successfully');
+      fetchImportLogs();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to reverse import');
+    } finally {
+      setReversingId(null);
+      setShowReverseDialog(null);
     }
   };
 
@@ -4685,6 +4743,15 @@ function ImportView({ user }: { user: SessionUser }) {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const formatImportDate = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return dateStr;
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 md:ml-64 space-y-6 max-w-4xl overflow-x-hidden">
       <div className="flex items-center justify-between">
@@ -4696,263 +4763,433 @@ function ImportView({ user }: { user: SessionUser }) {
         </h1>
       </div>
 
-      {/* Import result */}
-      {importResult && (
-        <Card className="border-green-200 dark:border-green-800">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-green-700 dark:text-green-300">Import Complete!</p>
-                <div className="text-xs text-green-600 dark:text-green-400 space-y-0.5">
-                  <p>{importResult.shiftsCreated} shift(s) created</p>
-                  <p>{importResult.paymentsCreated} payment(s) created</p>
-                  {importResult.companiesCreated > 0 && <p>{importResult.companiesCreated} new company/companies created</p>}
-                  {importResult.errors?.length > 0 && importResult.errors.map((e: string, i: number) => (
-                    <p key={i} className="text-amber-600 dark:text-amber-400">⚠ {e}</p>
-                  ))}
+      {/* Tab selector */}
+      <div className="flex gap-1 p-1 bg-muted rounded-lg">
+        <button
+          onClick={() => setActiveTab('import')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
+            activeTab === 'import' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Upload className="h-4 w-4" /> Import
+        </button>
+        <button
+          onClick={() => setActiveTab('history')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
+            activeTab === 'history' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Clock className="h-4 w-4" /> History
+          {importLogs.filter(l => !l.reversed).length > 0 && (
+            <Badge className="text-[10px] h-5 min-w-[20px] px-1.5">{importLogs.filter(l => !l.reversed).length}</Badge>
+          )}
+        </button>
+      </div>
+
+      {/* ==================== IMPORT TAB ==================== */}
+      {activeTab === 'import' && (
+        <>
+          {/* Import result */}
+          {importResult && (
+            <Card className="border-green-200 dark:border-green-800">
+              <CardContent className="p-4">
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1 flex-1">
+                    <p className="text-sm font-semibold text-green-700 dark:text-green-300">Import Complete!</p>
+                    <div className="text-xs text-green-600 dark:text-green-400 space-y-0.5">
+                      <p>{importResult.shiftsCreated} shift(s) created</p>
+                      <p>{importResult.paymentsCreated} payment(s) created</p>
+                      {importResult.companiesCreated > 0 && <p>{importResult.companiesCreated} new company/companies created</p>}
+                      {importResult.errors?.length > 0 && importResult.errors.map((e: string, i: number) => (
+                        <p key={i} className="text-amber-600 dark:text-amber-400">⚠ {e}</p>
+                      ))}
+                    </div>
+                    <div className="flex gap-2 mt-3">
+                      <Button onClick={handleReset} size="sm" variant="outline">
+                        Import Another File
+                      </Button>
+                      <Button onClick={() => { setActiveTab('history'); fetchImportLogs(); }} size="sm" variant="outline">
+                        View History
+                      </Button>
+                    </div>
+                  </div>
                 </div>
-                <Button onClick={handleReset} size="sm" className="mt-2" variant="outline">
-                  Import Another File
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Upload section */}
+          {!importResult && (
+            <>
+              <Card className="border-border">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Upload className="h-4 w-4" /> Upload File
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Upload CSV, PDF, or DOCX files containing your shift or payment data. AI-powered extraction for PDF and DOCX.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Import type selector */}
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">What data are you importing?</Label>
+                    <Select value={importType} onValueChange={(v) => setImportType(v as 'auto' | 'shifts' | 'payments')}>
+                      <SelectTrigger className="h-10">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">Auto-detect (Recommended)</SelectItem>
+                        <SelectItem value="shifts">Shifts only</SelectItem>
+                        <SelectItem value="payments">Payment records only</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* File input */}
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+                      file ? 'border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/30' : 'border-border hover:border-blue-400 dark:hover:border-blue-600 hover:bg-muted/50'
+                    }`}
+                  >
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".csv,.pdf,.docx,.doc"
+                      onChange={handleFileSelect}
+                      className="hidden"
+                    />
+                    {file ? (
+                      <div className="space-y-2">
+                        <FileCheck className="h-10 w-10 text-green-600 dark:text-green-400 mx-auto" />
+                        <p className="text-sm font-medium text-foreground">{file.name}</p>
+                        <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(1)} KB</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <Upload className="h-10 w-10 text-muted-foreground mx-auto" />
+                        <p className="text-sm font-medium text-foreground">Click to upload or drag & drop</p>
+                        <p className="text-xs text-muted-foreground">CSV, PDF, or DOCX (max 5MB)</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Supported formats info */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="text-center p-2 rounded-lg bg-muted/50">
+                      <p className="text-xs font-semibold text-foreground">CSV</p>
+                      <p className="text-[10px] text-muted-foreground">Direct parsing</p>
+                    </div>
+                    <div className="text-center p-2 rounded-lg bg-muted/50">
+                      <p className="text-xs font-semibold text-foreground">PDF</p>
+                      <p className="text-[10px] text-muted-foreground">AI extraction</p>
+                    </div>
+                    <div className="text-center p-2 rounded-lg bg-muted/50">
+                      <p className="text-xs font-semibold text-foreground">DOCX</p>
+                      <p className="text-[10px] text-muted-foreground">AI extraction</p>
+                    </div>
+                  </div>
+
+                  <Button onClick={handleUpload} className="w-full h-12" disabled={!file || uploading}>
+                    {uploading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Extracting data...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="h-4 w-4 mr-2" />
+                        Extract Data from File
+                      </>
+                    )}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* Warnings */}
+              {imported && imported.warnings.length > 0 && (
+                <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-4">
+                  <div className="flex gap-3">
+                    <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">Import Warnings</p>
+                      {imported.warnings.map((w, i) => (
+                        <p key={i} className="text-xs text-amber-600 dark:text-amber-400">{w}</p>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Preview extracted data */}
+              {imported && (editedShifts.length > 0 || editedPayments.length > 0) && (
+                <div className="space-y-4">
+                  {/* CONFIRM IMPORT - AT THE TOP for easy access */}
+                  <Card className="border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Check className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                          <span className="text-sm font-semibold text-blue-700 dark:text-blue-300">
+                            {editedShifts.length + editedPayments.length} items ready to import
+                          </span>
+                        </div>
+                        <Badge variant="outline" className="text-[10px]">
+                          {editedShifts.length} shifts + {editedPayments.length} payments
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Checkbox
+                          id="create-companies-top"
+                          checked={createCompanies}
+                          onCheckedChange={(c) => setCreateCompanies(!!c)}
+                        />
+                        <label htmlFor="create-companies-top" className="text-sm text-muted-foreground cursor-pointer">
+                          Auto-create new companies for unmatched names
+                        </label>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button onClick={handleReset} variant="outline" className="flex-1 h-10" disabled={confirming}>
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={handleConfirmImport}
+                          className="flex-1 h-10 bg-gradient-to-r from-blue-600 to-green-600 hover:from-blue-700 hover:to-green-700 text-white"
+                          disabled={confirming || (editedShifts.length === 0 && editedPayments.length === 0)}
+                        >
+                          {confirming ? (
+                            <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Importing...</>
+                          ) : (
+                            <><Check className="h-4 w-4 mr-2" /> Confirm Import ({editedShifts.length + editedPayments.length} items)</>
+                          )}
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Shifts preview */}
+                  {editedShifts.length > 0 && (
+                    <Card className="border-border">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <CalendarDays className="h-4 w-4" /> Extracted Shifts ({editedShifts.length})
+                        </CardTitle>
+                        <CardDescription className="text-xs">Review and remove any incorrect entries before importing</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          {editedShifts.map((shift, i) => (
+                            <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border border-border">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-sm font-medium">{shift.date}</span>
+                                  <Badge variant="outline" className="text-[10px]">{shift.shiftType || 'REGULAR'}</Badge>
+                                  {!shift.companyMatched && shift.companyName && (
+                                    <Badge className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">New company</Badge>
+                                  )}
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  {shift.startTime} - {shift.endTime} | {shift.totalHours}h | £{shift.payRate}/hr
+                                  {shift.companyName && ` | ${shift.companyName}`}
+                                  {shift.breakMinutes > 0 && ` | ${shift.breakMinutes}min break`}
+                                </p>
+                              </div>
+                              <button onClick={() => handleRemoveShift(i)} className="shrink-0 p-1.5 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-600 dark:hover:text-red-400 min-h-[44px] min-w-[44px] flex items-center justify-center">
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Payments preview */}
+                  {editedPayments.length > 0 && (
+                    <Card className="border-border">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <PoundSterling className="h-4 w-4" /> Extracted Payments ({editedPayments.length})
+                        </CardTitle>
+                        <CardDescription className="text-xs">Review and remove any incorrect entries before importing</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          {editedPayments.map((payment, i) => (
+                            <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border border-border">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-sm font-medium">Month {payment.month}/{payment.year}</span>
+                                  {!payment.companyMatched && payment.companyName && (
+                                    <Badge className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">New company</Badge>
+                                  )}
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  Expected: £{payment.totalExpected} | Received: £{payment.totalReceived}
+                                  {payment.totalHMRC > 0 && ` | HMRC: £${payment.totalHMRC}`}
+                                  {payment.totalDue > 0 && ` | Due: £${payment.totalDue}`}
+                                  {payment.companyName && ` | ${payment.companyName}`}
+                                  {payment.workedHours > 0 && ` | ${payment.workedHours}h worked`}
+                                </p>
+                              </div>
+                              <button onClick={() => handleRemovePayment(i)} className="shrink-0 p-1.5 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-600 dark:hover:text-red-400 min-h-[44px] min-w-[44px] flex items-center justify-center">
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              )}
+
+              {/* No data found */}
+              {imported && editedShifts.length === 0 && editedPayments.length === 0 && (
+                <Card className="border-border">
+                  <CardContent className="p-4 text-center">
+                    <AlertCircle className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                    <p className="text-sm font-medium text-foreground">No data found</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Could not extract any shift or payment data from this file. Make sure the file contains relevant data.
+                    </p>
+                    <Button onClick={handleReset} size="sm" className="mt-3" variant="outline">
+                      Try Another File
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          )}
+        </>
       )}
 
-      {/* Upload section */}
-      {!importResult && (
+      {/* ==================== HISTORY TAB ==================== */}
+      {activeTab === 'history' && (
         <>
           <Card className="border-border">
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
-                <Upload className="h-4 w-4" /> Upload File
+                <Clock className="h-4 w-4" /> Import History
               </CardTitle>
               <CardDescription className="text-xs">
-                Upload CSV, PDF, or DOCX files containing your shift or payment data. AI-powered extraction for PDF and DOCX.
+                View all your past imports. You can reverse any import to remove all data from that specific import.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Import type selector */}
-              <div className="space-y-1.5">
-                <Label className="text-sm">What data are you importing?</Label>
-                <Select value={importType} onValueChange={(v) => setImportType(v as 'auto' | 'shifts' | 'payments')}>
-                  <SelectTrigger className="h-10">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="auto">Auto-detect (Recommended)</SelectItem>
-                    <SelectItem value="shifts">Shifts only</SelectItem>
-                    <SelectItem value="payments">Payment records only</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* File input */}
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-                  file ? 'border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/30' : 'border-border hover:border-blue-400 dark:hover:border-blue-600 hover:bg-muted/50'
-                }`}
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".csv,.pdf,.docx,.doc"
-                  onChange={handleFileSelect}
-                  className="hidden"
-                />
-                {file ? (
-                  <div className="space-y-2">
-                    <FileCheck className="h-10 w-10 text-green-600 dark:text-green-400 mx-auto" />
-                    <p className="text-sm font-medium text-foreground">{file.name}</p>
-                    <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(1)} KB</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <Upload className="h-10 w-10 text-muted-foreground mx-auto" />
-                    <p className="text-sm font-medium text-foreground">Click to upload or drag & drop</p>
-                    <p className="text-xs text-muted-foreground">CSV, PDF, or DOCX (max 5MB)</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Supported formats info */}
-              <div className="grid grid-cols-3 gap-2">
-                <div className="text-center p-2 rounded-lg bg-muted/50">
-                  <p className="text-xs font-semibold text-foreground">CSV</p>
-                  <p className="text-[10px] text-muted-foreground">Direct parsing</p>
+            <CardContent>
+              {loadingLogs ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  <span className="ml-2 text-sm text-muted-foreground">Loading history...</span>
                 </div>
-                <div className="text-center p-2 rounded-lg bg-muted/50">
-                  <p className="text-xs font-semibold text-foreground">PDF</p>
-                  <p className="text-[10px] text-muted-foreground">AI extraction</p>
+              ) : importLogs.length === 0 ? (
+                <div className="text-center py-8">
+                  <FileText className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+                  <p className="text-sm font-medium text-foreground">No imports yet</p>
+                  <p className="text-xs text-muted-foreground mt-1">Your import history will appear here after you import data.</p>
+                  <Button onClick={() => setActiveTab('import')} size="sm" className="mt-3" variant="outline">
+                    Start Importing
+                  </Button>
                 </div>
-                <div className="text-center p-2 rounded-lg bg-muted/50">
-                  <p className="text-xs font-semibold text-foreground">DOCX</p>
-                  <p className="text-[10px] text-muted-foreground">AI extraction</p>
-                </div>
-              </div>
+              ) : (
+                <div className="space-y-3">
+                  {importLogs.map((log) => (
+                    <div key={log.id} className={`rounded-lg border p-4 space-y-2 ${
+                      log.reversed
+                        ? 'border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/10'
+                        : 'border-border bg-card'
+                    }`}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium text-foreground truncate">
+                              {log.fileName || 'Unknown file'}
+                            </span>
+                            <Badge variant="outline" className="text-[10px] uppercase">{log.fileType || 'unknown'}</Badge>
+                            {log.reversed ? (
+                              <Badge className="text-[10px] bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">Reversed</Badge>
+                            ) : (
+                              <Badge className="text-[10px] bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">Active</Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {formatImportDate(log.createdAt)}
+                            {log.importType && log.importType !== 'auto' && ` · Type: ${log.importType}`}
+                          </p>
+                        </div>
+                      </div>
 
-              <Button onClick={handleUpload} className="w-full h-12" disabled={!file || uploading}>
-                {uploading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    Extracting data...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="h-4 w-4 mr-2" />
-                    Extract Data from File
-                  </>
-                )}
-              </Button>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <CalendarDays className="h-3 w-3" /> {log.shiftsCount} shift(s)
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <PoundSterling className="h-3 w-3" /> {log.paymentsCount} payment(s)
+                        </span>
+                        {log.companiesCreated > 0 && (
+                          <span className="flex items-center gap-1">
+                            <Building2 className="h-3 w-3" /> {log.companiesCreated} company/companies
+                          </span>
+                        )}
+                      </div>
+
+                      {log.reversed && log.reversedAt && (
+                        <p className="text-xs text-red-600 dark:text-red-400">
+                          Reversed on {formatImportDate(log.reversedAt)} — All data from this import has been removed.
+                        </p>
+                      )}
+
+                      {!log.reversed && (
+                        <Button
+                          onClick={() => setShowReverseDialog(log.id)}
+                          variant="outline"
+                          size="sm"
+                          className="text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-950/30 h-8 text-xs"
+                          disabled={reversingId === log.id}
+                        >
+                          {reversingId === log.id ? (
+                            <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Reversing...</>
+                          ) : (
+                            <><Trash className="h-3 w-3 mr-1" /> Reverse Import</>
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!loadingLogs && importLogs.length > 0 && (
+                <Button onClick={fetchImportLogs} variant="ghost" size="sm" className="mt-4 w-full">
+                  Refresh History
+                </Button>
+              )}
             </CardContent>
           </Card>
 
-          {/* Warnings */}
-          {imported && imported.warnings.length > 0 && (
-            <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-4">
-              <div className="flex gap-3">
-                <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">Import Warnings</p>
-                  {imported.warnings.map((w, i) => (
-                    <p key={i} className="text-xs text-amber-600 dark:text-amber-400">{w}</p>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Preview extracted data */}
-          {imported && (editedShifts.length > 0 || editedPayments.length > 0) && (
-            <div className="space-y-4">
-              {/* Shifts preview */}
-              {editedShifts.length > 0 && (
-                <Card className="border-border">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <CalendarDays className="h-4 w-4" /> Extracted Shifts ({editedShifts.length})
-                    </CardTitle>
-                    <CardDescription className="text-xs">Review and remove any incorrect entries before importing</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      {editedShifts.map((shift, i) => (
-                        <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border border-border">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-sm font-medium">{shift.date}</span>
-                              <Badge variant="outline" className="text-[10px]">{shift.shiftType || 'REGULAR'}</Badge>
-                              {!shift.companyMatched && shift.companyName && (
-                                <Badge className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">New company</Badge>
-                              )}
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              {shift.startTime} - {shift.endTime} | {shift.totalHours}h | £{shift.payRate}/hr
-                              {shift.companyName && ` | ${shift.companyName}`}
-                              {shift.breakMinutes > 0 && ` | ${shift.breakMinutes}min break`}
-                            </p>
-                          </div>
-                          <button onClick={() => handleRemoveShift(i)} className="shrink-0 p-1.5 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-600 dark:hover:text-red-400 min-h-[44px] min-w-[44px] flex items-center justify-center">
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Payments preview */}
-              {editedPayments.length > 0 && (
-                <Card className="border-border">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <PoundSterling className="h-4 w-4" /> Extracted Payments ({editedPayments.length})
-                    </CardTitle>
-                    <CardDescription className="text-xs">Review and remove any incorrect entries before importing</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      {editedPayments.map((payment, i) => (
-                        <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border border-border">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-sm font-medium">Month {payment.month}/{payment.year}</span>
-                              {!payment.companyMatched && payment.companyName && (
-                                <Badge className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">New company</Badge>
-                              )}
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              Expected: £{payment.totalExpected} | Received: £{payment.totalReceived}
-                              {payment.totalHMRC > 0 && ` | HMRC: £${payment.totalHMRC}`}
-                              {payment.totalDue > 0 && ` | Due: £${payment.totalDue}`}
-                              {payment.companyName && ` | ${payment.companyName}`}
-                              {payment.workedHours > 0 && ` | ${payment.workedHours}h worked`}
-                            </p>
-                          </div>
-                          <button onClick={() => handleRemovePayment(i)} className="shrink-0 p-1.5 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-600 dark:hover:text-red-400 min-h-[44px] min-w-[44px] flex items-center justify-center">
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Import options & confirm */}
-              <Card className="border-border">
-                <CardContent className="p-4 space-y-4">
-                  <div className="flex items-center gap-3">
-                    <Checkbox
-                      id="create-companies"
-                      checked={createCompanies}
-                      onCheckedChange={(c) => setCreateCompanies(!!c)}
-                    />
-                    <label htmlFor="create-companies" className="text-sm text-muted-foreground cursor-pointer">
-                      Auto-create new companies for unmatched names
-                    </label>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Button onClick={handleReset} variant="outline" className="flex-1 h-10" disabled={confirming}>
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={handleConfirmImport}
-                      className="flex-1 h-10 bg-gradient-to-r from-blue-600 to-green-600 hover:from-blue-700 hover:to-green-700 text-white"
-                      disabled={confirming || (editedShifts.length === 0 && editedPayments.length === 0)}
-                    >
-                      {confirming ? (
-                        <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Importing...</>
-                      ) : (
-                        <><Check className="h-4 w-4 mr-2" /> Confirm Import ({editedShifts.length + editedPayments.length} items)</>
-                      )}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {/* No data found */}
-          {imported && editedShifts.length === 0 && editedPayments.length === 0 && (
-            <Card className="border-border">
-              <CardContent className="p-4 text-center">
-                <AlertCircle className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                <p className="text-sm font-medium text-foreground">No data found</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Could not extract any shift or payment data from this file. Make sure the file contains relevant data.
-                </p>
-                <Button onClick={handleReset} size="sm" className="mt-3" variant="outline">
-                  Try Another File
-                </Button>
-              </CardContent>
-            </Card>
-          )}
+          {/* Reverse confirmation dialog */}
+          <AlertDialog open={!!showReverseDialog} onOpenChange={(open) => !open && setShowReverseDialog(null)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Reverse Import?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete all shifts, payments, and auto-created companies from this import.
+                  This action cannot be undone. The imported data will be removed from your account.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => showReverseDialog && handleReverseImport(showReverseDialog)}
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                >
+                  Yes, Reverse Import
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </>
       )}
 
