@@ -23,10 +23,12 @@ export async function GET(request: NextRequest) {
     const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
       'July', 'August', 'September', 'October', 'November', 'December'];
 
+    let useLte = false; // Whether to use <= (inclusive) for endDate
     if (from && to) {
-      // Premium user: custom date range
+      // Premium user: custom date range — end date is inclusive
       startDate = from;
       endDate = to;
+      useLte = true;
       monthLabel = `${from} to ${to}`;
     } else if (month && year) {
       const m = parseInt(month);
@@ -60,7 +62,15 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch shifts for the period
-    const where: any = { userId: user.id, date: { gte: startDate, lt: endDate } };
+    // For custom date ranges (from/to), end date is inclusive (lte)
+    // For monthly downloads, end date is exclusive (lt) since endDate = first of next month
+    const dateFilter: any = { gte: startDate };
+    if (useLte) {
+      dateFilter.lte = endDate;
+    } else {
+      dateFilter.lt = endDate;
+    }
+    const where: any = { userId: user.id, date: dateFilter };
     const shifts = await db.shift.findMany({
       where,
       include: { company: { select: { id: true, name: true } } },
