@@ -300,9 +300,11 @@ async function parseDOCX(file: File, companies: any[], importType: string, userI
 
 // ==================== AI EXTRACTION ====================
 // Z.AI API endpoints — General vs Coding Plan
+// Correct base URL: https://open.bigmodel.cn/api/paas/v4/
+// The z.ai API (GLM models by Zhipu AI) is OpenAI-compatible
 const ZAI_ENDPOINTS: Record<string, string> = {
-  general: 'https://api.z.ai/api/paas/v4/chat/completions',
-  coding: 'https://api.z.ai/api/coding/paas/v4/chat/completions',
+  general: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
+  coding: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
 };
 
 async function extractWithAI(text: string, companies: any[], importType: string, userId: string, sourceType: string): Promise<{ shifts: any[]; payments: any[]; warnings: string[] }> {

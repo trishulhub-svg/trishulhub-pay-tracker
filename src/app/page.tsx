@@ -6,7 +6,7 @@ import { useTheme } from 'next-themes';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import {
-  LayoutDashboard, FileText, CalendarDays, Users, Settings,
+  LayoutDashboard, FileText, Calendar, CalendarDays, Users, Settings,
   LogOut, Plus, Edit3, Trash2, ChevronLeft, ChevronRight,
   Moon, Sun, Eye, EyeOff, Copy, Share2, Check, AlertCircle,
   Clock, Building2, TrendingUp, PoundSterling, BarChart3,
@@ -2588,6 +2588,11 @@ function ShiftsView({ user }: { user: SessionUser }) {
   const [rotaFrom, setRotaFrom] = useState('');
   const [rotaTo, setRotaTo] = useState('');
   const [downloading, setDownloading] = useState(false);
+
+  // View mode: day | week | month
+  const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('week');
+
+  // Week view state
   const [weekStart, setWeekStart] = useState<Date>(() => {
     const now = new Date();
     const day = now.getDay();
@@ -2597,11 +2602,18 @@ function ShiftsView({ user }: { user: SessionUser }) {
     monday.setHours(0, 0, 0, 0);
     return monday;
   });
+
+  // Day view state
+  const [dayDate, setDayDate] = useState<Date>(new Date());
+
+  // Month view state
+  const [monthDate, setMonthDate] = useState<Date>(new Date());
+
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [editShift, setEditShift] = useState<Shift | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  useEffect(() => { fetchShifts(); fetchCompanies(); }, [weekStart]);
+  useEffect(() => { fetchShifts(); fetchCompanies(); }, []);
 
   const fetchCompanies = async () => {
     try {
@@ -2622,12 +2634,20 @@ function ShiftsView({ user }: { user: SessionUser }) {
     }
   };
 
-  const weekDates = getWeekDates(weekStart);
-
   const getShiftsForDay = (date: Date) => {
     const dateStr = formatDateStr(date);
     return shifts.filter((s) => s.date === dateStr);
   };
+
+  const getShiftsForMonth = (year: number, month: number) => {
+    return shifts.filter((s) => {
+      const [y, m] = s.date.split('-').map(Number);
+      return y === year && m === month;
+    });
+  };
+
+  // Week navigation
+  const weekDates = getWeekDates(weekStart);
 
   const prevWeek = () => {
     const d = new Date(weekStart);
@@ -2651,6 +2671,40 @@ function ShiftsView({ user }: { user: SessionUser }) {
     setWeekStart(monday);
   };
 
+  // Day navigation
+  const prevDay = () => {
+    const d = new Date(dayDate);
+    d.setDate(d.getDate() - 1);
+    setDayDate(d);
+  };
+
+  const nextDay = () => {
+    const d = new Date(dayDate);
+    d.setDate(d.getDate() + 1);
+    setDayDate(d);
+  };
+
+  const goToday = () => {
+    setDayDate(new Date());
+  };
+
+  // Month navigation
+  const prevMonth = () => {
+    const d = new Date(monthDate);
+    d.setMonth(d.getMonth() - 1);
+    setMonthDate(d);
+  };
+
+  const nextMonth = () => {
+    const d = new Date(monthDate);
+    d.setMonth(d.getMonth() + 1);
+    setMonthDate(d);
+  };
+
+  const goThisMonth = () => {
+    setMonthDate(new Date());
+  };
+
   const handleDelete = async () => {
     if (!deleteId) return;
     try {
@@ -2665,13 +2719,7 @@ function ShiftsView({ user }: { user: SessionUser }) {
   };
 
   const handleDownloadRota = (isPremium: boolean) => {
-    if (isPremium) {
-      // Premium: show custom date range dialog
-      setShowRotaDialog(true);
-    } else {
-      // Free: download current month
-      setShowRotaDialog(true);
-    }
+    setShowRotaDialog(true);
   };
 
   const executeDownload = async () => {
@@ -2685,25 +2733,39 @@ function ShiftsView({ user }: { user: SessionUser }) {
       }
       const res = await fetch(url);
       if (!res.ok) {
-        const data = await res.json();
+        let errorMsg = 'Download failed';
+        try {
+          const data = await res.json();
+          errorMsg = data.error || errorMsg;
+        } catch { /* not JSON */ }
         if (res.status === 403 && !user.isPremium) {
           setShowPremiumPopup(true);
           setShowRotaDialog(false);
           return;
         }
-        throw new Error(data.error || 'Download failed');
+        throw new Error(errorMsg);
       }
+
       const html = await res.text();
-      // Open in new window for printing/saving as PDF
-      const printWindow = window.open('', '_blank');
+
+      const blob = new Blob([html], { type: 'text/html' });
+      const blobUrl = URL.createObjectURL(blob);
+      const printWindow = window.open(blobUrl, '_blank');
+
       if (printWindow) {
-        printWindow.document.write(html);
-        printWindow.document.close();
-        setTimeout(() => {
-          printWindow.print();
-        }, 500);
+        printWindow.onload = () => {
+          setTimeout(() => {
+            try {
+              printWindow.print();
+            } catch {
+              // Some browsers block cross-origin print calls
+            }
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+          }, 800);
+        };
       } else {
         toast.error('Please allow popups to download the rota');
+        URL.revokeObjectURL(blobUrl);
       }
       setShowRotaDialog(false);
     } catch (err: unknown) {
@@ -2713,16 +2775,82 @@ function ShiftsView({ user }: { user: SessionUser }) {
     }
   };
 
-  // Weekly summary
-  const weekShifts = weekDates.flatMap((d) => getShiftsForDay(d));
-  const totalWeekHours = weekShifts.reduce((acc, s) => acc + s.totalHours, 0);
-  const totalWeekShifts = weekShifts.length;
-  const avgHoursPerDay = totalWeekShifts > 0 ? (totalWeekHours / 7).toFixed(1) : '0';
+  // Calculate summary stats based on current view
+  const viewShifts = (() => {
+    if (viewMode === 'day') return getShiftsForDay(dayDate);
+    if (viewMode === 'week') return weekDates.flatMap((d) => getShiftsForDay(d));
+    if (viewMode === 'month') return getShiftsForMonth(monthDate.getFullYear(), monthDate.getMonth() + 1);
+    return [];
+  })();
+
+  const totalHours = viewShifts.reduce((acc, s) => acc + s.totalHours, 0);
+  const totalShifts = viewShifts.length;
+  const totalEarnings = viewShifts.reduce((acc, s) => acc + s.totalHours * s.payRate, 0);
+  const avgRatePerHr = totalHours > 0 ? totalEarnings / totalHours : 0;
 
   const isCurrentWeek = (() => {
     const currentWeekDates = getWeekDates(new Date());
     return formatDateStr(weekDates[0]) === formatDateStr(currentWeekDates[0]);
   })();
+
+  // Enhanced Shift Card renderer
+  const renderShiftCard = (shift: Shift) => {
+    const shiftType = SHIFT_TYPES.find((t) => t.value === shift.shiftType) || SHIFT_TYPES[0];
+    const shiftEarnings = shift.totalHours * shift.payRate;
+    return (
+      <div
+        key={shift.id}
+        className="flex items-start gap-3 p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors cursor-pointer"
+        onClick={() => setEditShift(shift)}
+      >
+        <div className={`w-1.5 self-stretch rounded-full shrink-0 ${shiftType.color}`} />
+        <div className="flex-1 min-w-0 space-y-1.5">
+          {/* Company + Shift type */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-bold text-foreground truncate">{shift.company.name}</span>
+            <Badge
+              className={`text-[10px] px-1.5 py-0 ${shiftType.color} text-white border-0`}
+            >
+              {shiftType.label}
+            </Badge>
+          </div>
+          {/* Time range + total hours */}
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Clock className="h-3 w-3 shrink-0" />
+            <span>{formatTime12h(shift.startTime)} – {formatTime12h(shift.endTime)}</span>
+            <span className="font-medium text-foreground">({shift.totalHours}h)</span>
+          </div>
+          {/* Earnings + Rate */}
+          <div className="flex items-center gap-3 flex-wrap">
+            {shiftEarnings > 0 && (
+              <span className="text-sm font-semibold text-green-600 dark:text-green-400">
+                £{shiftEarnings.toFixed(2)}
+              </span>
+            )}
+            <span className="text-[11px] text-muted-foreground">
+              £{shift.payRate.toFixed(2)}/hr
+            </span>
+            {shift.breakMinutes > 0 && (
+              <span className="text-[11px] text-muted-foreground flex items-center gap-0.5">
+                • {shift.breakMinutes}m break
+              </span>
+            )}
+          </div>
+          {shift.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{shift.notes}</p>}
+        </div>
+        <div className="flex gap-1 shrink-0 mt-0.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={(e) => { e.stopPropagation(); setDeleteId(shift.id); }}
+          >
+            <Trash2 className="h-3.5 w-3.5 text-destructive" />
+          </Button>
+        </div>
+      </div>
+    );
+  };
 
   if (loading) return <LoadingSkeleton />;
 
@@ -2751,8 +2879,47 @@ function ShiftsView({ user }: { user: SessionUser }) {
 
   return (
     <div className="p-4 md:p-6 md:ml-64 space-y-4 max-w-6xl overflow-x-hidden">
+      {/* Header with title + view toggle + action buttons */}
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-xl font-bold text-foreground">Shifts</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-bold text-foreground">Shifts</h1>
+          {/* View Toggle Tabs */}
+          <div className="flex items-center bg-muted rounded-lg p-0.5">
+            <button
+              onClick={() => setViewMode('day')}
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all min-h-[36px] ${
+                viewMode === 'day'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Calendar className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Day</span>
+            </button>
+            <button
+              onClick={() => setViewMode('week')}
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all min-h-[36px] ${
+                viewMode === 'week'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <CalendarDays className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Week</span>
+            </button>
+            <button
+              onClick={() => setViewMode('month')}
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all min-h-[36px] ${
+                viewMode === 'month'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <BarChart3 className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Month</span>
+            </button>
+          </div>
+        </div>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
@@ -2765,7 +2932,7 @@ function ShiftsView({ user }: { user: SessionUser }) {
           <Button
             onClick={() => {
               setSelectedShiftId(null);
-              setSelectedDay(new Date());
+              setSelectedDay(viewMode === 'day' ? dayDate : viewMode === 'month' ? monthDate : new Date());
             }}
             className="bg-gradient-to-r from-blue-600 to-green-600 text-white"
             size="sm"
@@ -2775,135 +2942,324 @@ function ShiftsView({ user }: { user: SessionUser }) {
         </div>
       </div>
 
-      {/* Week Summary Card */}
+      {/* Enhanced Summary Stats Card */}
       <Card className="border-border">
         <CardContent className="p-4">
-          <div className="grid grid-cols-3 gap-2 sm:gap-4 text-center">
-            <div>
-              <p className="text-lg sm:text-2xl font-bold text-foreground">{totalWeekHours.toFixed(1)}</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 text-center">
+            <div className="bg-muted/50 rounded-lg p-2">
+              <p className="text-lg sm:text-2xl font-bold text-foreground">{totalHours.toFixed(1)}</p>
               <p className="text-[10px] sm:text-xs text-muted-foreground">Total Hours</p>
             </div>
-            <div>
-              <p className="text-lg sm:text-2xl font-bold text-foreground">{totalWeekShifts}</p>
+            <div className="bg-muted/50 rounded-lg p-2">
+              <p className="text-lg sm:text-2xl font-bold text-foreground">{totalShifts}</p>
               <p className="text-[10px] sm:text-xs text-muted-foreground">Total Shifts</p>
             </div>
-            <div>
-              <p className="text-lg sm:text-2xl font-bold text-foreground">{avgHoursPerDay}</p>
-              <p className="text-[10px] sm:text-xs text-muted-foreground">Avg Hours/Day</p>
+            <div className="bg-muted/50 rounded-lg p-2">
+              <p className="text-lg sm:text-2xl font-bold text-green-600 dark:text-green-400">
+                £{totalEarnings.toFixed(2)}
+              </p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground">
+                {viewMode === 'day' ? 'Day' : viewMode === 'week' ? 'Week' : 'Month'} Earnings
+              </p>
+            </div>
+            <div className="bg-muted/50 rounded-lg p-2">
+              <p className="text-lg sm:text-2xl font-bold text-foreground">
+                £{avgRatePerHr.toFixed(2)}
+              </p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground">Avg Rate/Hr</p>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Week Navigation */}
-      <div className="flex items-center justify-between gap-2">
-        <Button variant="outline" size="icon" onClick={prevWeek} className="h-10 w-10 min-h-[44px] min-w-[44px]">
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <div className="flex flex-col items-center">
-          <span className="text-sm font-medium text-foreground">
-            {weekDates[0].toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – {weekDates[6].toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-          </span>
-          {!isCurrentWeek && (
-            <button onClick={goThisWeek} className="text-xs text-blue-600 dark:text-blue-400 hover:underline min-h-[44px] flex items-center">
-              Go to this week
-            </button>
-          )}
-        </div>
-        <Button variant="outline" size="icon" onClick={nextWeek} className="h-10 w-10 min-h-[44px] min-w-[44px]">
-          <ChevronRight className="h-4 w-4" />
-        </Button>
-      </div>
+      {/* ===== DAY VIEW ===== */}
+      {viewMode === 'day' && (
+        <>
+          {/* Day Navigation */}
+          <div className="flex items-center justify-between gap-2">
+            <Button variant="outline" size="icon" onClick={prevDay} className="h-10 w-10 min-h-[44px] min-w-[44px]">
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <div className="flex flex-col items-center">
+              <span className="text-sm font-medium text-foreground">
+                {dayDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+              </span>
+              {!isToday(dayDate) && (
+                <button onClick={goToday} className="text-xs text-blue-600 dark:text-blue-400 hover:underline min-h-[44px] flex items-center">
+                  Go to today
+                </button>
+              )}
+            </div>
+            <Button variant="outline" size="icon" onClick={nextDay} className="h-10 w-10 min-h-[44px] min-w-[44px]">
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
 
-      {/* Weekly Calendar Grid */}
-      <div className="space-y-2">
-        {weekDates.map((date, idx) => {
-          const dayShifts = getShiftsForDay(date);
-          const isCurrentDay = isToday(date);
-          const isWeekend = idx >= 5;
+          {/* Date picker input for day view */}
+          <div className="flex items-center gap-2">
+            <Label className="text-xs text-muted-foreground shrink-0">Jump to date:</Label>
+            <Input
+              type="date"
+              value={formatDateStr(dayDate)}
+              onChange={(e) => {
+                if (e.target.value) {
+                  const parts = e.target.value.split('-').map(Number);
+                  setDayDate(new Date(parts[0], parts[1] - 1, parts[2]));
+                }
+              }}
+              className="h-9 text-sm w-auto"
+            />
+          </div>
 
-          return (
-            <motion.div
-              key={formatDateStr(date)}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.03 }}
-            >
-              <Card className={`border-border ${isCurrentDay ? 'ring-2 ring-blue-500/30 dark:ring-blue-400/30' : ''} ${isWeekend ? 'bg-muted/30 dark:bg-muted/10' : ''}`}>
-                <CardContent className="p-3 md:p-4">
-                  {/* Day header */}
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs font-medium px-2 py-1 rounded-md ${isCurrentDay ? 'bg-blue-600 text-white' : 'bg-muted text-muted-foreground'}`}>
-                        {DAY_NAMES[idx]}
-                      </span>
-                      <span className="text-sm text-muted-foreground">
-                        {date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                      </span>
-                      {isCurrentDay && <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 text-[10px]">Today</Badge>}
+          {/* Day shifts */}
+          <div className="space-y-2">
+            {(() => {
+              const dayShifts = getShiftsForDay(dayDate);
+              const isCurrentDay = isToday(dayDate);
+              return (
+                <Card className={`border-border ${isCurrentDay ? 'ring-2 ring-blue-500/30 dark:ring-blue-400/30' : ''}`}>
+                  <CardContent className="p-3 md:p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-medium px-2 py-1 rounded-md ${isCurrentDay ? 'bg-blue-600 text-white' : 'bg-muted text-muted-foreground'}`}>
+                          {DAY_NAMES_FULL[dayDate.getDay() === 0 ? 6 : dayDate.getDay() - 1]}
+                        </span>
+                        <span className="text-sm text-muted-foreground">
+                          {dayDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                        </span>
+                        {isCurrentDay && <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 text-[10px]">Today</Badge>}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 min-h-[44px] min-w-[44px]"
+                        onClick={() => {
+                          setSelectedShiftId(null);
+                          setSelectedDay(dayDate);
+                        }}
+                      >
+                        <Plus className="h-4 w-4 text-muted-foreground" />
+                      </Button>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 min-h-[44px] min-w-[44px]"
+                    {dayShifts.length === 0 ? (
+                      <div className="flex flex-col items-center py-6 text-center">
+                        <Calendar className="h-8 w-8 text-muted-foreground/50 mb-2" />
+                        <p className="text-sm text-muted-foreground">No shifts on this day</p>
+                        <button
+                          onClick={() => {
+                            setSelectedShiftId(null);
+                            setSelectedDay(dayDate);
+                          }}
+                          className="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1 min-h-[44px] flex items-center"
+                        >
+                          Add a shift
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {dayShifts.map((shift) => renderShiftCard(shift))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })()}
+          </div>
+        </>
+      )}
+
+      {/* ===== WEEK VIEW ===== */}
+      {viewMode === 'week' && (
+        <>
+          {/* Week Navigation */}
+          <div className="flex items-center justify-between gap-2">
+            <Button variant="outline" size="icon" onClick={prevWeek} className="h-10 w-10 min-h-[44px] min-w-[44px]">
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <div className="flex flex-col items-center">
+              <span className="text-sm font-medium text-foreground">
+                {weekDates[0].toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – {weekDates[6].toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+              </span>
+              {!isCurrentWeek && (
+                <button onClick={goThisWeek} className="text-xs text-blue-600 dark:text-blue-400 hover:underline min-h-[44px] flex items-center">
+                  Go to this week
+                </button>
+              )}
+            </div>
+            <Button variant="outline" size="icon" onClick={nextWeek} className="h-10 w-10 min-h-[44px] min-w-[44px]">
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {/* Weekly Calendar Grid */}
+          <div className="space-y-2">
+            {weekDates.map((date, idx) => {
+              const dayShifts = getShiftsForDay(date);
+              const isCurrentDay = isToday(date);
+              const isWeekend = idx >= 5;
+
+              return (
+                <motion.div
+                  key={formatDateStr(date)}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.03 }}
+                >
+                  <Card className={`border-border ${isCurrentDay ? 'ring-2 ring-blue-500/30 dark:ring-blue-400/30' : ''} ${isWeekend ? 'bg-muted/30 dark:bg-muted/10' : ''}`}>
+                    <CardContent className="p-3 md:p-4">
+                      {/* Day header */}
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs font-medium px-2 py-1 rounded-md ${isCurrentDay ? 'bg-blue-600 text-white' : 'bg-muted text-muted-foreground'}`}>
+                            {DAY_NAMES[idx]}
+                          </span>
+                          <span className="text-sm text-muted-foreground">
+                            {date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                          </span>
+                          {isCurrentDay && <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 text-[10px]">Today</Badge>}
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 min-h-[44px] min-w-[44px]"
+                          onClick={() => {
+                            setSelectedShiftId(null);
+                            setSelectedDay(date);
+                          }}
+                        >
+                          <Plus className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                      </div>
+
+                      {/* Shifts for this day */}
+                      {dayShifts.length === 0 ? (
+                        <p className="text-xs text-muted-foreground pl-1">No shift</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {dayShifts.map((shift) => renderShiftCard(shift))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* ===== MONTH VIEW ===== */}
+      {viewMode === 'month' && (
+        <>
+          {/* Month Navigation */}
+          <div className="flex items-center justify-between gap-2">
+            <Button variant="outline" size="icon" onClick={prevMonth} className="h-10 w-10 min-h-[44px] min-w-[44px]">
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <div className="flex flex-col items-center">
+              <span className="text-sm font-medium text-foreground">
+                {MONTHS[monthDate.getMonth()]} {monthDate.getFullYear()}
+              </span>
+              {!(monthDate.getMonth() === new Date().getMonth() && monthDate.getFullYear() === new Date().getFullYear()) && (
+                <button onClick={goThisMonth} className="text-xs text-blue-600 dark:text-blue-400 hover:underline min-h-[44px] flex items-center">
+                  Go to this month
+                </button>
+              )}
+            </div>
+            <Button variant="outline" size="icon" onClick={nextMonth} className="h-10 w-10 min-h-[44px] min-w-[44px]">
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {/* Month shifts grouped by date */}
+          <div className="space-y-2 max-h-[60vh] overflow-y-auto custom-scrollbar">
+            {(() => {
+              const mShifts = getShiftsForMonth(monthDate.getFullYear(), monthDate.getMonth() + 1);
+              if (mShifts.length === 0) {
+                return (
+                  <div className="flex flex-col items-center py-10 text-center">
+                    <CalendarDays className="h-10 w-10 text-muted-foreground/50 mb-2" />
+                    <p className="text-sm text-muted-foreground">No shifts this month</p>
+                    <button
                       onClick={() => {
                         setSelectedShiftId(null);
-                        setSelectedDay(date);
+                        setSelectedDay(monthDate);
                       }}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1 min-h-[44px] flex items-center"
                     >
-                      <Plus className="h-4 w-4 text-muted-foreground" />
-                    </Button>
+                      Add a shift
+                    </button>
                   </div>
+                );
+              }
 
-                  {/* Shifts for this day */}
-                  {dayShifts.length === 0 ? (
-                    <p className="text-xs text-muted-foreground pl-1">No shift</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {dayShifts.map((shift) => {
-                        const shiftType = SHIFT_TYPES.find((t) => t.value === shift.shiftType) || SHIFT_TYPES[0];
-                        return (
-                          <div
-                            key={shift.id}
-                            className="flex items-center gap-3 p-2 rounded-lg border border-border hover:bg-muted/50 transition-colors cursor-pointer"
-                            onClick={() => setEditShift(shift)}
-                          >
-                            <div className={`w-1.5 h-10 rounded-full ${shiftType.color}`} />
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-foreground truncate">{shift.company.name}</span>
-                                <Badge variant="outline" className="text-[10px]">{shiftType.label}</Badge>
-                              </div>
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <Clock className="h-3 w-3" />
-                                <span>{formatTime12h(shift.startTime)} – {formatTime12h(shift.endTime)}</span>
-                                <span>•</span>
-                                <span>{shift.totalHours}h</span>
-                                {shift.breakMinutes > 0 && <span>• {shift.breakMinutes}m break</span>}
-                              </div>
-                              {shift.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{shift.notes}</p>}
-                            </div>
-                            <div className="flex gap-1 shrink-0">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7"
-                                onClick={(e) => { e.stopPropagation(); setDeleteId(shift.id); }}
-                              >
-                                <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                              </Button>
-                            </div>
+              // Group shifts by date
+              const groupedByDate: Record<string, Shift[]> = {};
+              mShifts.forEach((s) => {
+                if (!groupedByDate[s.date]) groupedByDate[s.date] = [];
+                groupedByDate[s.date].push(s);
+              });
+
+              // Sort dates
+              const sortedDates = Object.keys(groupedByDate).sort();
+
+              return sortedDates.map((dateStr) => {
+                const parts = dateStr.split('-').map(Number);
+                const date = new Date(parts[0], parts[1] - 1, parts[2]);
+                const dayShifts = groupedByDate[dateStr];
+                const isCurrentDay = isToday(date);
+                const dayOfWeek = date.getDay();
+                const dayName = DAY_NAMES_FULL[dayOfWeek === 0 ? 6 : dayOfWeek - 1];
+                const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                const dayEarnings = dayShifts.reduce((acc, s) => acc + s.totalHours * s.payRate, 0);
+                const dayHours = dayShifts.reduce((acc, s) => acc + s.totalHours, 0);
+
+                return (
+                  <motion.div
+                    key={dateStr}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                  >
+                    <Card className={`border-border ${isCurrentDay ? 'ring-2 ring-blue-500/30 dark:ring-blue-400/30' : ''} ${isWeekend ? 'bg-muted/30 dark:bg-muted/10' : ''}`}>
+                      <CardContent className="p-3 md:p-4">
+                        {/* Day header */}
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-medium px-2 py-1 rounded-md ${isCurrentDay ? 'bg-blue-600 text-white' : 'bg-muted text-muted-foreground'}`}>
+                              {dayName}
+                            </span>
+                            <span className="text-sm text-muted-foreground">
+                              {date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                            </span>
+                            {isCurrentDay && <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 text-[10px]">Today</Badge>}
+                            <span className="text-[11px] text-muted-foreground ml-1">
+                              {dayHours.toFixed(1)}h • £{dayEarnings.toFixed(2)}
+                            </span>
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </motion.div>
-          );
-        })}
-      </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 min-h-[44px] min-w-[44px]"
+                            onClick={() => {
+                              setSelectedShiftId(null);
+                              setSelectedDay(date);
+                            }}
+                          >
+                            <Plus className="h-4 w-4 text-muted-foreground" />
+                          </Button>
+                        </div>
+                        <div className="space-y-2">
+                          {dayShifts.map((shift) => renderShiftCard(shift))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                );
+              });
+            })()}
+          </div>
+        </>
+      )}
 
       {/* Add shift from day + button */}
       <ShiftDaySheet
@@ -2912,6 +3268,7 @@ function ShiftsView({ user }: { user: SessionUser }) {
         onClose={() => setSelectedDay(null)}
         companies={companies}
         onSaved={() => { fetchShifts(); setSelectedDay(null); }}
+        user={user}
       />
 
       {/* Edit shift sheet */}
@@ -3002,18 +3359,39 @@ function ShiftsView({ user }: { user: SessionUser }) {
 // SHIFT DAY SHEET (add shift for specific day)
 // ============================================================
 function ShiftDaySheet({
-  date, open, onClose, companies, onSaved,
+  date, open, onClose, companies, onSaved, user,
 }: {
   date: Date | null;
   open: boolean;
   onClose: () => void;
   companies: Company[];
   onSaved: () => void;
+  user: SessionUser;
 }) {
-  const [companyId, setCompanyId] = useState('');
+  // Load last-used company and break minutes from localStorage
+  const getLastUsedCompany = () => {
+    try {
+      return localStorage.getItem(`lastCompany_${user.id}`) || '';
+    } catch { return ''; }
+  };
+  const getLastBreakMinutes = () => {
+    try {
+      return localStorage.getItem(`lastBreakMinutes_${user.id}`) || '0';
+    } catch { return '0'; }
+  };
+
+  // Auto-select company: if only 1 company, use it; otherwise use last used
+  const getDefaultCompany = () => {
+    if (companies.length === 1) return companies[0].id;
+    const lastUsed = getLastUsedCompany();
+    if (lastUsed && companies.some(c => c.id === lastUsed)) return lastUsed;
+    return '';
+  };
+
+  const [companyId, setCompanyId] = useState(getDefaultCompany);
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('17:00');
-  const [breakMinutes, setBreakMinutes] = useState('30');
+  const [breakMinutes, setBreakMinutes] = useState(getLastBreakMinutes);
   const [shiftType, setShiftType] = useState('REGULAR');
   const [payRate, setPayRate] = useState('');
   const [useCustomRate, setUseCustomRate] = useState(false);
@@ -3024,6 +3402,21 @@ function ShiftDaySheet({
   const selectedCompany = companies.find((c) => c.id === companyId);
   const companyPayRate = selectedCompany?.payRate || 0;
 
+  // When company changes, update pay rate to company default if not using custom
+  useEffect(() => {
+    if (companyId && !useCustomRate) {
+      if (companyPayRate > 0) {
+        setPayRate(companyPayRate.toString());
+      } else {
+        setPayRate('');
+      }
+    }
+    // Save last-used company to localStorage
+    if (companyId) {
+      try { localStorage.setItem(`lastCompany_${user.id}`, companyId); } catch {}
+    }
+  }, [companyId, companyPayRate, useCustomRate, user.id]);
+
   // Auto-calculate hours
   const totalHours = calculateShiftHours(startTime, endTime, parseInt(breakMinutes) || 0);
   const effectiveRate = useCustomRate ? (parseFloat(payRate) || 0) : companyPayRate;
@@ -3033,6 +3426,9 @@ function ShiftDaySheet({
     if (!date || !companyId) { toast.error('Please select a company'); return; }
     setLoading(true);
     try {
+      // Save last-used break minutes to localStorage
+      try { localStorage.setItem(`lastBreakMinutes_${user.id}`, breakMinutes); } catch {}
+
       await apiFetch('/api/shifts', {
         method: 'POST',
         body: JSON.stringify({
@@ -3057,10 +3453,10 @@ function ShiftDaySheet({
   };
 
   const resetForm = () => {
-    setCompanyId('');
+    setCompanyId(getDefaultCompany());
     setStartTime('09:00');
     setEndTime('17:00');
-    setBreakMinutes('30');
+    setBreakMinutes(getLastBreakMinutes());
     setShiftType('REGULAR');
     setPayRate('');
     setUseCustomRate(false);
@@ -3115,11 +3511,11 @@ function ShiftDaySheet({
             </Select>
           </div>
 
-          {/* Pay Rate Override */}
+          {/* Hour Rate Field - always visible */}
           {companyId && (
             <div className="space-y-2 rounded-lg border border-border p-3 bg-muted/30">
               <div className="flex items-center justify-between">
-                <Label className="text-sm">Pay Rate</Label>
+                <Label className="text-sm">Hour Rate</Label>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">Custom rate</span>
                   <Switch checked={useCustomRate} onCheckedChange={setUseCustomRate} />
@@ -3132,7 +3528,7 @@ function ShiftDaySheet({
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  {companyPayRate > 0 ? `Using company rate: £${companyPayRate.toFixed(2)}/hr` : 'No company rate set'}
+                  {companyPayRate > 0 ? `Using company rate: £${companyPayRate.toFixed(2)}/hr` : 'No company rate set — toggle custom rate to enter one'}
                 </p>
               )}
               {effectiveRate > 0 && (
@@ -3176,8 +3572,10 @@ function ShiftEditSheet({
   const [companyId, setCompanyId] = useState('');
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('17:00');
-  const [breakMinutes, setBreakMinutes] = useState('30');
+  const [breakMinutes, setBreakMinutes] = useState('0');
   const [shiftType, setShiftType] = useState('REGULAR');
+  const [payRate, setPayRate] = useState('');
+  const [useCustomRate, setUseCustomRate] = useState(false);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -3189,10 +3587,22 @@ function ShiftEditSheet({
       setBreakMinutes(shift.breakMinutes.toString());
       setShiftType(shift.shiftType);
       setNotes(shift.notes || '');
+      // If shift has a custom pay rate (different from company rate), show it
+      const company = companies.find(c => c.id === shift.companyId);
+      if (shift.payRate > 0 && company && shift.payRate !== company.payRate) {
+        setPayRate(shift.payRate.toString());
+        setUseCustomRate(true);
+      }
     }
-  }, [shift]);
+  }, [shift, companies]);
+
+  // Get company pay rate
+  const selectedCompany = companies.find((c) => c.id === companyId);
+  const companyPayRate = selectedCompany?.payRate || 0;
 
   const totalHours = calculateShiftHours(startTime, endTime, parseInt(breakMinutes) || 0);
+  const effectiveRate = useCustomRate ? (parseFloat(payRate) || 0) : companyPayRate;
+  const shiftEarnings = totalHours * effectiveRate;
 
   const handleSubmit = async () => {
     if (!shift) return;
@@ -3206,6 +3616,7 @@ function ShiftEditSheet({
           endTime,
           breakMinutes: parseInt(breakMinutes) || 0,
           shiftType,
+          payRate: useCustomRate ? (parseFloat(payRate) || 0) : undefined,
           notes: notes || null,
         }),
       });
@@ -3265,6 +3676,35 @@ function ShiftEditSheet({
               </SelectContent>
             </Select>
           </div>
+
+          {/* Hour Rate Field - always visible */}
+          {companyId && (
+            <div className="space-y-2 rounded-lg border border-border p-3 bg-muted/30">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm">Hour Rate</Label>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Custom rate</span>
+                  <Switch checked={useCustomRate} onCheckedChange={setUseCustomRate} />
+                </div>
+              </div>
+              {useCustomRate ? (
+                <div className="relative">
+                  <PoundSterling className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input type="number" step="0.01" min="0" placeholder="Custom rate" value={payRate} onChange={(e) => setPayRate(e.target.value)} className="pl-10 h-10" />
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {companyPayRate > 0 ? `Using company rate: £${companyPayRate.toFixed(2)}/hr` : 'No company rate set — toggle custom rate to enter one'}
+                </p>
+              )}
+              {effectiveRate > 0 && (
+                <p className="text-xs text-primary font-medium">
+                  Estimated earnings: £{shiftEarnings.toFixed(2)} ({totalHours}h × £{effectiveRate.toFixed(2)})
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label>Notes</Label>
             <Textarea placeholder="Optional notes..." value={notes} onChange={(e) => setNotes(e.target.value)} />
@@ -4407,8 +4847,8 @@ function AiSettingsView() {
       const model = form.ZAI_MODEL || 'glm-4.5-flash';
       const endpointKey = form.ZAI_API_ENDPOINT || 'general';
       const endpoints: Record<string, string> = {
-        general: 'https://api.z.ai/api/paas/v4/chat/completions',
-        coding: 'https://api.z.ai/api/coding/paas/v4/chat/completions',
+        general: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
+        coding: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
       };
       const apiUrl = endpoints[endpointKey] || endpoints.general;
       const res = await fetch(apiUrl, {
@@ -4452,8 +4892,8 @@ function AiSettingsView() {
             <p className="text-sm font-semibold text-purple-900 dark:text-purple-200">Z.AI API Configuration</p>
             <p className="text-xs text-purple-700 dark:text-purple-400 leading-relaxed">
               This API key powers the AI data import feature for premium users. It enables extracting shift and payment data from PDF and DOCX files.
-              Uses the Z.AI API (GLM models) — the free GLM-4.5-Flash model works great for this. Get your API key from{' '}
-              <a href="https://z.ai/manage-apikey/apikey-list" target="_blank" rel="noopener noreferrer" className="underline">z.ai</a>.
+              Uses the Z.AI API (GLM models by Zhipu AI) — the free GLM-4.5-Flash model works great for this. Get your API key from{' '}
+              <a href="https://open.bigmodel.cn/" target="_blank" rel="noopener noreferrer" className="underline">open.bigmodel.cn</a>.
             </p>
           </div>
         </div>
@@ -4475,8 +4915,8 @@ function AiSettingsView() {
           </CardTitle>
           <CardDescription className="text-xs">
             Get your API key from{' '}
-            <a href="https://z.ai/manage-apikey/apikey-list" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
-              z.ai/apikey <ExternalLink className="h-3 w-3 inline" />
+            <a href="https://open.bigmodel.cn/" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
+              open.bigmodel.cn <ExternalLink className="h-3 w-3 inline" />
             </a>
           </CardDescription>
         </CardHeader>
@@ -4522,8 +4962,8 @@ function AiSettingsView() {
                 <SelectValue placeholder="Select endpoint" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="general">General API (api.z.ai/api/paas/v4)</SelectItem>
-                <SelectItem value="coding">Coding Plan (api.z.ai/api/coding/paas/v4)</SelectItem>
+                <SelectItem value="general">General API (open.bigmodel.cn/api/paas/v4)</SelectItem>
+                <SelectItem value="coding">Coding Plan (open.bigmodel.cn/api/paas/v4)</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-[10px] text-muted-foreground">Use &quot;Coding Plan&quot; if you have a $18/month GLM Coding subscription</p>
