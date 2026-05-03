@@ -285,8 +285,10 @@ function isToday(d: Date): boolean {
 }
 
 function calculateShiftHours(startTime: string, endTime: string, breakMinutes: number): number {
+  if (!startTime || !endTime) return 0;
   const [startH, startM] = startTime.split(':').map(Number);
   const [endH, endM] = endTime.split(':').map(Number);
+  if (isNaN(startH) || isNaN(startM) || isNaN(endH) || isNaN(endM)) return 0;
   let startMinutes = startH * 60 + startM;
   let endMinutes = endH * 60 + endM;
   if (endMinutes <= startMinutes) endMinutes += 24 * 60;
@@ -295,7 +297,9 @@ function calculateShiftHours(startTime: string, endTime: string, breakMinutes: n
 }
 
 function formatTime12h(time24: string): string {
+  if (!time24) return '--:--';
   const [h, m] = time24.split(':').map(Number);
+  if (isNaN(h) || isNaN(m)) return '--:--';
   const period = h >= 12 ? 'PM' : 'AM';
   const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
   return `${h12}:${String(m).padStart(2, '0')} ${period}`;
@@ -1787,7 +1791,7 @@ function RecordsView() {
   const fetchCompanies = async () => {
     try {
       const data = await apiFetch('/api/companies');
-      setCompanies(data.companies);
+      setCompanies(data.companies || []);
     } catch { /* ignore */ }
   };
 
@@ -1975,7 +1979,7 @@ function RecordFormView({ isEdit = false }: { isEdit?: boolean }) {
   const fetchCompanies = async () => {
     try {
       const data = await apiFetch('/api/companies');
-      setCompanies(data.companies);
+      setCompanies(data.companies || []);
     } catch { /* ignore */ }
   };
 
@@ -2238,7 +2242,7 @@ function CompaniesView() {
     setLoading(true);
     try {
       const data = await apiFetch('/api/companies');
-      setCompanies(data.companies);
+      setCompanies(data.companies || []);
     } catch {
       toast.error('Failed to load companies');
     } finally {
@@ -2619,7 +2623,7 @@ function ShiftsView({ user }: { user: SessionUser }) {
   const fetchCompanies = async () => {
     try {
       const data = await apiFetch('/api/companies');
-      setCompanies(data.companies);
+      setCompanies(data.companies || []);
     } catch { /* ignore */ }
   };
 
@@ -2784,10 +2788,11 @@ function ShiftsView({ user }: { user: SessionUser }) {
     return [];
   })();
 
-  const totalHours = viewShifts.reduce((acc, s) => acc + s.totalHours, 0);
+  const totalHours = viewShifts.reduce((acc, s) => acc + (Number(s.totalHours) || 0), 0);
   const totalShifts = viewShifts.length;
-  const totalEarnings = viewShifts.reduce((acc, s) => acc + s.totalHours * s.payRate, 0);
+  const totalEarnings = viewShifts.reduce((acc, s) => acc + (Number(s.totalHours) || 0) * (Number(s.payRate) || 0), 0);
   const avgRatePerHr = totalHours > 0 ? totalEarnings / totalHours : 0;
+  const uniqueDays = [...new Set(viewShifts.map(s => s.date))];
 
   const isCurrentWeek = (() => {
     const currentWeekDates = getWeekDates(new Date());
@@ -2797,9 +2802,11 @@ function ShiftsView({ user }: { user: SessionUser }) {
   // ProdiHours-style Shift Card renderer
   const renderShiftCard = (shift: Shift) => {
     const shiftType = SHIFT_TYPES.find((t) => t.value === shift.shiftType) || SHIFT_TYPES[0];
-    const shiftEarnings = shift.totalHours * shift.payRate;
-    const hours = Math.floor(shift.totalHours);
-    const mins = Math.round((shift.totalHours - hours) * 60);
+    const totalH = Number(shift.totalHours) || 0;
+    const payR = Number(shift.payRate) || 0;
+    const shiftEarnings = totalH * payR;
+    const hours = Math.floor(totalH);
+    const mins = Math.round((totalH - hours) * 60);
     const durationStr = mins > 0 ? `${hours}:${String(mins).padStart(2, '0')}` : `${hours}:00`;
 
     return (
@@ -2953,7 +2960,7 @@ function ShiftsView({ user }: { user: SessionUser }) {
           <div className="mt-2 border-t border-blue-400/30 pt-1.5 flex items-center gap-1 text-xs text-blue-200">
             <span>{totalShifts} shift{totalShifts !== 1 ? 's' : ''}</span>
             <span className="text-blue-400/60">•</span>
-            <span>{sortedDates.length} day{sortedDates.length !== 1 ? 's' : ''}</span>
+            <span>{uniqueDays.length} day{uniqueDays.length !== 1 ? 's' : ''}</span>
           </div>
         </div>
         <div className="bg-gradient-to-br from-emerald-600 to-emerald-700 dark:from-emerald-700 dark:to-emerald-800 rounded-xl p-4 text-white shadow-sm">
@@ -3009,9 +3016,9 @@ function ShiftsView({ user }: { user: SessionUser }) {
             {(() => {
               const dayShifts = getShiftsForDay(dayDate);
               const isCurrentDay = isToday(dayDate);
-              const dayCompanies = [...new Set(dayShifts.map(s => s.company.name))];
-              const dayHours = dayShifts.reduce((acc, s) => acc + s.totalHours, 0);
-              const dayEarnings = dayShifts.reduce((acc, s) => acc + s.totalHours * s.payRate, 0);
+              const dayCompanies = [...new Set(dayShifts.map(s => s.company?.name).filter(Boolean))];
+              const dayHours = dayShifts.reduce((acc, s) => acc + (Number(s.totalHours) || 0), 0);
+              const dayEarnings = dayShifts.reduce((acc, s) => acc + (Number(s.totalHours) || 0) * (Number(s.payRate) || 0), 0);
               return (
                 <Card className={`border-border overflow-hidden ${isCurrentDay ? 'ring-2 ring-blue-500/30 dark:ring-blue-400/30' : ''}`}>
                   {/* Day header bar */}
@@ -3104,10 +3111,10 @@ function ShiftsView({ user }: { user: SessionUser }) {
               const dayShifts = getShiftsForDay(date);
               const isCurrentDay = isToday(date);
               const isWeekend = idx >= 5;
-              const dayHours = dayShifts.reduce((acc, s) => acc + s.totalHours, 0);
-              const dayEarnings = dayShifts.reduce((acc, s) => acc + s.totalHours * s.payRate, 0);
+              const dayHours = dayShifts.reduce((acc, s) => acc + (Number(s.totalHours) || 0), 0);
+              const dayEarnings = dayShifts.reduce((acc, s) => acc + (Number(s.totalHours) || 0) * (Number(s.payRate) || 0), 0);
               // Get unique company names for this day
-              const dayCompanies = [...new Set(dayShifts.map(s => s.company.name))];
+              const dayCompanies = [...new Set(dayShifts.map(s => s.company?.name).filter(Boolean))];
 
               return (
                 <motion.div
@@ -3232,9 +3239,9 @@ function ShiftsView({ user }: { user: SessionUser }) {
                 const dayOfWeek = date.getDay();
                 const dayName = DAY_NAMES_FULL[dayOfWeek === 0 ? 6 : dayOfWeek - 1];
                 const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-                const dayEarnings = dayShifts.reduce((acc, s) => acc + s.totalHours * s.payRate, 0);
-                const dayHours = dayShifts.reduce((acc, s) => acc + s.totalHours, 0);
-                const dayCompanies = [...new Set(dayShifts.map(s => s.company.name))];
+                const dayEarnings = dayShifts.reduce((acc, s) => acc + (Number(s.totalHours) || 0) * (Number(s.payRate) || 0), 0);
+                const dayHours = dayShifts.reduce((acc, s) => acc + (Number(s.totalHours) || 0), 0);
+                const dayCompanies = [...new Set(dayShifts.map(s => s.company?.name).filter(Boolean))];
 
                 return (
                   <motion.div
@@ -3628,6 +3635,9 @@ function ShiftEditSheet({
       if (shift.payRate > 0 && company && shift.payRate !== company.payRate) {
         setPayRate(shift.payRate.toString());
         setUseCustomRate(true);
+      } else {
+        setPayRate('');
+        setUseCustomRate(false);
       }
     }
   }, [shift, companies]);
