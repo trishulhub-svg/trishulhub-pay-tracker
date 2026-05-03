@@ -75,6 +75,7 @@ interface Shift {
   shiftType: string;
   payRate: number;
   notes: string | null;
+  client: string | null;
   company: { id: string; name: string };
 }
 
@@ -2793,61 +2794,63 @@ function ShiftsView({ user }: { user: SessionUser }) {
     return formatDateStr(weekDates[0]) === formatDateStr(currentWeekDates[0]);
   })();
 
-  // Enhanced Shift Card renderer
+  // ProdiHours-style Shift Card renderer
   const renderShiftCard = (shift: Shift) => {
     const shiftType = SHIFT_TYPES.find((t) => t.value === shift.shiftType) || SHIFT_TYPES[0];
     const shiftEarnings = shift.totalHours * shift.payRate;
+    const hours = Math.floor(shift.totalHours);
+    const mins = Math.round((shift.totalHours - hours) * 60);
+    const durationStr = mins > 0 ? `${hours}:${String(mins).padStart(2, '0')}` : `${hours}:00`;
+
     return (
       <div
         key={shift.id}
-        className="flex items-start gap-3 p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors cursor-pointer"
+        className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer group"
         onClick={() => setEditShift(shift)}
       >
-        <div className={`w-1.5 self-stretch rounded-full shrink-0 ${shiftType.color}`} />
-        <div className="flex-1 min-w-0 space-y-1.5">
-          {/* Company + Shift type */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-bold text-foreground truncate">{shift.company.name}</span>
+        {/* Left: Shift type color indicator */}
+        <div className={`w-1 self-stretch rounded-full shrink-0 ${shiftType.color}`} />
+
+        {/* Center: Shift details */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            {/* Time display */}
+            <span className="text-sm font-semibold text-foreground tabular-nums">
+              {formatTime12h(shift.startTime)} – {formatTime12h(shift.endTime)}
+            </span>
             <Badge
-              className={`text-[10px] px-1.5 py-0 ${shiftType.color} text-white border-0`}
+              className={`text-[9px] px-1.5 py-0 h-4 ${shiftType.color} text-white border-0`}
             >
               {shiftType.label}
             </Badge>
-          </div>
-          {/* Time range + total hours */}
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Clock className="h-3 w-3 shrink-0" />
-            <span>{formatTime12h(shift.startTime)} – {formatTime12h(shift.endTime)}</span>
-            <span className="font-medium text-foreground">({shift.totalHours}h)</span>
-          </div>
-          {/* Earnings + Rate */}
-          <div className="flex items-center gap-3 flex-wrap">
-            {shiftEarnings > 0 && (
-              <span className="text-sm font-semibold text-green-600 dark:text-green-400">
-                £{shiftEarnings.toFixed(2)}
-              </span>
-            )}
-            <span className="text-[11px] text-muted-foreground">
-              £{shift.payRate.toFixed(2)}/hr
-            </span>
-            {shift.breakMinutes > 0 && (
-              <span className="text-[11px] text-muted-foreground flex items-center gap-0.5">
-                • {shift.breakMinutes}m break
+            {shift.client && (
+              <span className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium truncate max-w-[120px]">
+                {shift.client}
               </span>
             )}
           </div>
-          {shift.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{shift.notes}</p>}
+          {shift.notes && (
+            <p className="text-[11px] text-muted-foreground truncate">{shift.notes}</p>
+          )}
         </div>
-        <div className="flex gap-1 shrink-0 mt-0.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={(e) => { e.stopPropagation(); setDeleteId(shift.id); }}
-          >
-            <Trash2 className="h-3.5 w-3.5 text-destructive" />
-          </Button>
+
+        {/* Right: Duration + Pay */}
+        <div className="text-right shrink-0">
+          <div className="text-sm font-bold text-foreground tabular-nums">{durationStr}</div>
+          <div className="text-xs font-semibold text-green-600 dark:text-green-400 tabular-nums">
+            £{shiftEarnings.toFixed(2)}
+          </div>
         </div>
+
+        {/* Delete button (shown on hover) */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+          onClick={(e) => { e.stopPropagation(); setDeleteId(shift.id); }}
+        >
+          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+        </Button>
       </div>
     );
   };
@@ -2942,35 +2945,25 @@ function ShiftsView({ user }: { user: SessionUser }) {
         </div>
       </div>
 
-      {/* Enhanced Summary Stats Card */}
-      <Card className="border-border">
-        <CardContent className="p-4">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 text-center">
-            <div className="bg-muted/50 rounded-lg p-2">
-              <p className="text-lg sm:text-2xl font-bold text-foreground">{totalHours.toFixed(1)}</p>
-              <p className="text-[10px] sm:text-xs text-muted-foreground">Total Hours</p>
-            </div>
-            <div className="bg-muted/50 rounded-lg p-2">
-              <p className="text-lg sm:text-2xl font-bold text-foreground">{totalShifts}</p>
-              <p className="text-[10px] sm:text-xs text-muted-foreground">Total Shifts</p>
-            </div>
-            <div className="bg-muted/50 rounded-lg p-2">
-              <p className="text-lg sm:text-2xl font-bold text-green-600 dark:text-green-400">
-                £{totalEarnings.toFixed(2)}
-              </p>
-              <p className="text-[10px] sm:text-xs text-muted-foreground">
-                {viewMode === 'day' ? 'Day' : viewMode === 'week' ? 'Week' : 'Month'} Earnings
-              </p>
-            </div>
-            <div className="bg-muted/50 rounded-lg p-2">
-              <p className="text-lg sm:text-2xl font-bold text-foreground">
-                £{avgRatePerHr.toFixed(2)}
-              </p>
-              <p className="text-[10px] sm:text-xs text-muted-foreground">Avg Rate/Hr</p>
-            </div>
+      {/* ProdiHours-style Summary: Total Hours + Total Pay */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-gradient-to-br from-blue-600 to-blue-700 dark:from-blue-700 dark:to-blue-800 rounded-xl p-4 text-white shadow-sm">
+          <p className="text-xs font-medium text-blue-100 uppercase tracking-wide mb-1">Total Hours</p>
+          <p className="text-2xl sm:text-3xl font-bold tabular-nums">{totalHours.toFixed(1)}<span className="text-base font-normal text-blue-200 ml-1">h</span></p>
+          <div className="mt-2 border-t border-blue-400/30 pt-1.5 flex items-center gap-1 text-xs text-blue-200">
+            <span>{totalShifts} shift{totalShifts !== 1 ? 's' : ''}</span>
+            <span className="text-blue-400/60">•</span>
+            <span>{sortedDates.length} day{sortedDates.length !== 1 ? 's' : ''}</span>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+        <div className="bg-gradient-to-br from-emerald-600 to-emerald-700 dark:from-emerald-700 dark:to-emerald-800 rounded-xl p-4 text-white shadow-sm">
+          <p className="text-xs font-medium text-emerald-100 uppercase tracking-wide mb-1">Total Pay</p>
+          <p className="text-2xl sm:text-3xl font-bold tabular-nums">£{totalEarnings.toFixed(2)}</p>
+          <div className="mt-2 border-t border-emerald-400/30 pt-1.5 flex items-center gap-1 text-xs text-emerald-200">
+            <span>£{avgRatePerHr.toFixed(2)}/hr avg</span>
+          </div>
+        </div>
+      </div>
 
       {/* ===== DAY VIEW ===== */}
       {viewMode === 'day' && (
@@ -3016,51 +3009,65 @@ function ShiftsView({ user }: { user: SessionUser }) {
             {(() => {
               const dayShifts = getShiftsForDay(dayDate);
               const isCurrentDay = isToday(dayDate);
+              const dayCompanies = [...new Set(dayShifts.map(s => s.company.name))];
+              const dayHours = dayShifts.reduce((acc, s) => acc + s.totalHours, 0);
+              const dayEarnings = dayShifts.reduce((acc, s) => acc + s.totalHours * s.payRate, 0);
               return (
-                <Card className={`border-border ${isCurrentDay ? 'ring-2 ring-blue-500/30 dark:ring-blue-400/30' : ''}`}>
-                  <CardContent className="p-3 md:p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-xs font-medium px-2 py-1 rounded-md ${isCurrentDay ? 'bg-blue-600 text-white' : 'bg-muted text-muted-foreground'}`}>
-                          {DAY_NAMES_FULL[dayDate.getDay() === 0 ? 6 : dayDate.getDay() - 1]}
+                <Card className={`border-border overflow-hidden ${isCurrentDay ? 'ring-2 ring-blue-500/30 dark:ring-blue-400/30' : ''}`}>
+                  {/* Day header bar */}
+                  <div className={`flex items-center justify-between px-3 py-2 ${dayShifts.length > 0 ? 'bg-muted/60 border-b border-border' : ''}`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded ${isCurrentDay ? 'bg-blue-600 text-white' : 'bg-muted text-muted-foreground'}`}>
+                        {DAY_NAMES_FULL[dayDate.getDay() === 0 ? 6 : dayDate.getDay() - 1]}
+                      </span>
+                      <span className="text-sm text-foreground font-medium">
+                        {dayDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                      </span>
+                      {isCurrentDay && <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 text-[10px] px-1.5 py-0">Today</Badge>}
+                      {dayCompanies.length > 0 && (
+                        <span className="text-[11px] text-muted-foreground font-medium truncate max-w-[150px]">
+                          {dayCompanies.join(', ')}
                         </span>
-                        <span className="text-sm text-muted-foreground">
-                          {dayDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {dayShifts.length > 0 && (
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          {dayHours.toFixed(1)}h &bull; £{dayEarnings.toFixed(2)}
                         </span>
-                        {isCurrentDay && <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 text-[10px]">Today</Badge>}
-                      </div>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 min-h-[44px] min-w-[44px]"
+                        className="h-7 w-7"
                         onClick={() => {
                           setSelectedShiftId(null);
                           setSelectedDay(dayDate);
                         }}
                       >
-                        <Plus className="h-4 w-4 text-muted-foreground" />
+                        <Plus className="h-3.5 w-3.5 text-muted-foreground" />
                       </Button>
                     </div>
-                    {dayShifts.length === 0 ? (
-                      <div className="flex flex-col items-center py-6 text-center">
-                        <Calendar className="h-8 w-8 text-muted-foreground/50 mb-2" />
-                        <p className="text-sm text-muted-foreground">No shifts on this day</p>
-                        <button
-                          onClick={() => {
-                            setSelectedShiftId(null);
-                            setSelectedDay(dayDate);
-                          }}
-                          className="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1 min-h-[44px] flex items-center"
-                        >
-                          Add a shift
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {dayShifts.map((shift) => renderShiftCard(shift))}
-                      </div>
-                    )}
-                  </CardContent>
+                  </div>
+                  {dayShifts.length === 0 ? (
+                    <div className="flex flex-col items-center py-6 text-center">
+                      <Calendar className="h-8 w-8 text-muted-foreground/50 mb-2" />
+                      <p className="text-sm text-muted-foreground">No shifts on this day</p>
+                      <button
+                        onClick={() => {
+                          setSelectedShiftId(null);
+                          setSelectedDay(dayDate);
+                        }}
+                        className="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1 min-h-[44px] flex items-center"
+                      >
+                        Add a shift
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-border/50">
+                      {dayShifts.map((shift) => renderShiftCard(shift))}
+                    </div>
+                  )}
                 </Card>
               );
             })()}
@@ -3091,12 +3098,16 @@ function ShiftsView({ user }: { user: SessionUser }) {
             </Button>
           </div>
 
-          {/* Weekly Calendar Grid */}
+          {/* Weekly Calendar Grid — ProdiHours Style */}
           <div className="space-y-2">
             {weekDates.map((date, idx) => {
               const dayShifts = getShiftsForDay(date);
               const isCurrentDay = isToday(date);
               const isWeekend = idx >= 5;
+              const dayHours = dayShifts.reduce((acc, s) => acc + s.totalHours, 0);
+              const dayEarnings = dayShifts.reduce((acc, s) => acc + s.totalHours * s.payRate, 0);
+              // Get unique company names for this day
+              const dayCompanies = [...new Set(dayShifts.map(s => s.company.name))];
 
               return (
                 <motion.div
@@ -3105,41 +3116,51 @@ function ShiftsView({ user }: { user: SessionUser }) {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: idx * 0.03 }}
                 >
-                  <Card className={`border-border ${isCurrentDay ? 'ring-2 ring-blue-500/30 dark:ring-blue-400/30' : ''} ${isWeekend ? 'bg-muted/30 dark:bg-muted/10' : ''}`}>
-                    <CardContent className="p-3 md:p-4">
-                      {/* Day header */}
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-xs font-medium px-2 py-1 rounded-md ${isCurrentDay ? 'bg-blue-600 text-white' : 'bg-muted text-muted-foreground'}`}>
-                            {DAY_NAMES[idx]}
+                  <Card className={`border-border overflow-hidden ${isCurrentDay ? 'ring-2 ring-blue-500/30 dark:ring-blue-400/30' : ''} ${isWeekend ? 'bg-muted/20 dark:bg-muted/10' : ''}`}>
+                    {/* Day header bar — company name shown here */}
+                    <div className={`flex items-center justify-between px-3 py-2 ${dayShifts.length > 0 ? 'bg-muted/60 border-b border-border' : ''}`}>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded ${isCurrentDay ? 'bg-blue-600 text-white' : 'bg-muted text-muted-foreground'}`}>
+                          {DAY_NAMES[idx]}
+                        </span>
+                        <span className="text-sm text-foreground font-medium">
+                          {date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                        </span>
+                        {isCurrentDay && <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 text-[10px] px-1.5 py-0">Today</Badge>}
+                        {/* Company name at day level */}
+                        {dayCompanies.length > 0 && (
+                          <span className="text-[11px] text-muted-foreground font-medium truncate max-w-[150px]">
+                            {dayCompanies.join(', ')}
                           </span>
-                          <span className="text-sm text-muted-foreground">
-                            {date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {dayShifts.length > 0 && (
+                          <span className="text-xs text-muted-foreground tabular-nums">
+                            {dayHours.toFixed(1)}h &bull; £{dayEarnings.toFixed(2)}
                           </span>
-                          {isCurrentDay && <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 text-[10px]">Today</Badge>}
-                        </div>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 min-h-[44px] min-w-[44px]"
+                          className="h-7 w-7"
                           onClick={() => {
                             setSelectedShiftId(null);
                             setSelectedDay(date);
                           }}
                         >
-                          <Plus className="h-4 w-4 text-muted-foreground" />
+                          <Plus className="h-3.5 w-3.5 text-muted-foreground" />
                         </Button>
                       </div>
-
-                      {/* Shifts for this day */}
-                      {dayShifts.length === 0 ? (
-                        <p className="text-xs text-muted-foreground pl-1">No shift</p>
-                      ) : (
-                        <div className="space-y-2">
-                          {dayShifts.map((shift) => renderShiftCard(shift))}
-                        </div>
-                      )}
-                    </CardContent>
+                    </div>
+                    {/* Shifts for this day */}
+                    {dayShifts.length === 0 ? (
+                      <p className="text-xs text-muted-foreground px-3 py-2">No shift</p>
+                    ) : (
+                      <div className="divide-y divide-border/50">
+                        {dayShifts.map((shift) => renderShiftCard(shift))}
+                      </div>
+                    )}
                   </Card>
                 </motion.div>
               );
@@ -3213,6 +3234,7 @@ function ShiftsView({ user }: { user: SessionUser }) {
                 const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
                 const dayEarnings = dayShifts.reduce((acc, s) => acc + s.totalHours * s.payRate, 0);
                 const dayHours = dayShifts.reduce((acc, s) => acc + s.totalHours, 0);
+                const dayCompanies = [...new Set(dayShifts.map(s => s.company.name))];
 
                 return (
                   <motion.div
@@ -3220,38 +3242,43 @@ function ShiftsView({ user }: { user: SessionUser }) {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                   >
-                    <Card className={`border-border ${isCurrentDay ? 'ring-2 ring-blue-500/30 dark:ring-blue-400/30' : ''} ${isWeekend ? 'bg-muted/30 dark:bg-muted/10' : ''}`}>
-                      <CardContent className="p-3 md:p-4">
-                        {/* Day header */}
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className={`text-xs font-medium px-2 py-1 rounded-md ${isCurrentDay ? 'bg-blue-600 text-white' : 'bg-muted text-muted-foreground'}`}>
-                              {dayName}
+                    <Card className={`border-border overflow-hidden ${isCurrentDay ? 'ring-2 ring-blue-500/30 dark:ring-blue-400/30' : ''} ${isWeekend ? 'bg-muted/20 dark:bg-muted/10' : ''}`}>
+                      {/* Day header bar — ProdiHours style */}
+                      <div className="flex items-center justify-between px-3 py-2 bg-muted/60 border-b border-border">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded ${isCurrentDay ? 'bg-blue-600 text-white' : 'bg-muted text-muted-foreground'}`}>
+                            {dayName}
+                          </span>
+                          <span className="text-sm text-foreground font-medium">
+                            {date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                          </span>
+                          {isCurrentDay && <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 text-[10px] px-1.5 py-0">Today</Badge>}
+                          {dayCompanies.length > 0 && (
+                            <span className="text-[11px] text-muted-foreground font-medium truncate max-w-[150px]">
+                              {dayCompanies.join(', ')}
                             </span>
-                            <span className="text-sm text-muted-foreground">
-                              {date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                            </span>
-                            {isCurrentDay && <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 text-[10px]">Today</Badge>}
-                            <span className="text-[11px] text-muted-foreground ml-1">
-                              {dayHours.toFixed(1)}h • £{dayEarnings.toFixed(2)}
-                            </span>
-                          </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground tabular-nums">
+                            {dayHours.toFixed(1)}h &bull; £{dayEarnings.toFixed(2)}
+                          </span>
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 min-h-[44px] min-w-[44px]"
+                            className="h-7 w-7"
                             onClick={() => {
                               setSelectedShiftId(null);
                               setSelectedDay(date);
                             }}
                           >
-                            <Plus className="h-4 w-4 text-muted-foreground" />
+                            <Plus className="h-3.5 w-3.5 text-muted-foreground" />
                           </Button>
                         </div>
-                        <div className="space-y-2">
+                      </div>
+                      <div className="divide-y divide-border/50">
                           {dayShifts.map((shift) => renderShiftCard(shift))}
                         </div>
-                      </CardContent>
                     </Card>
                   </motion.div>
                 );
@@ -3396,6 +3423,7 @@ function ShiftDaySheet({
   const [payRate, setPayRate] = useState('');
   const [useCustomRate, setUseCustomRate] = useState(false);
   const [notes, setNotes] = useState('');
+  const [client, setClient] = useState('');
   const [loading, setLoading] = useState(false);
 
   // Get company pay rate when company changes
@@ -3440,6 +3468,7 @@ function ShiftDaySheet({
           shiftType,
           payRate: useCustomRate ? (parseFloat(payRate) || 0) : undefined,
           notes: notes || null,
+          client: client || null,
         }),
       });
       toast.success('Shift added!');
@@ -3461,6 +3490,7 @@ function ShiftDaySheet({
     setPayRate('');
     setUseCustomRate(false);
     setNotes('');
+    setClient('');
   };
 
   if (!date) return null;
@@ -3540,6 +3570,10 @@ function ShiftDaySheet({
           )}
 
           <div className="space-y-2">
+            <Label>Client <span className="text-muted-foreground">(Optional)</span></Label>
+            <Input placeholder="Client name..." value={client} onChange={(e) => setClient(e.target.value)} className="h-12" />
+          </div>
+          <div className="space-y-2">
             <Label>Notes</Label>
             <Textarea placeholder="Optional notes..." value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
@@ -3577,6 +3611,7 @@ function ShiftEditSheet({
   const [payRate, setPayRate] = useState('');
   const [useCustomRate, setUseCustomRate] = useState(false);
   const [notes, setNotes] = useState('');
+  const [client, setClient] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -3587,6 +3622,7 @@ function ShiftEditSheet({
       setBreakMinutes(shift.breakMinutes.toString());
       setShiftType(shift.shiftType);
       setNotes(shift.notes || '');
+      setClient(shift.client || '');
       // If shift has a custom pay rate (different from company rate), show it
       const company = companies.find(c => c.id === shift.companyId);
       if (shift.payRate > 0 && company && shift.payRate !== company.payRate) {
@@ -3618,6 +3654,7 @@ function ShiftEditSheet({
           shiftType,
           payRate: useCustomRate ? (parseFloat(payRate) || 0) : undefined,
           notes: notes || null,
+          client: client || null,
         }),
       });
       toast.success('Shift updated!');
@@ -3705,6 +3742,10 @@ function ShiftEditSheet({
             </div>
           )}
 
+          <div className="space-y-2">
+            <Label>Client <span className="text-muted-foreground">(Optional)</span></Label>
+            <Input placeholder="Client name..." value={client} onChange={(e) => setClient(e.target.value)} className="h-12" />
+          </div>
           <div className="space-y-2">
             <Label>Notes</Label>
             <Textarea placeholder="Optional notes..." value={notes} onChange={(e) => setNotes(e.target.value)} />

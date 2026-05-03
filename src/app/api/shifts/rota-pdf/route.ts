@@ -39,14 +39,14 @@ export async function GET(request: NextRequest) {
       endDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
       monthLabel = `${MONTHS[m - 1]} ${y}`;
 
-      // Free user download window check: only from last day of month to next month 5th (inclusive = 6 days total)
+      // Free user download window check
       if (!user.isPremium) {
         const now = new Date();
-        const lastDayOfMonth = new Date(y, m, 0); // last day of the target month (e.g. Jan 31)
+        const lastDayOfMonth = new Date(y, m, 0);
         const windowStart = new Date(lastDayOfMonth);
         windowStart.setHours(0, 0, 0, 0);
 
-        const windowEnd = new Date(nextYear, nextMonth - 1, 6); // 6th of next month at 00:00 (exclusive upper bound)
+        const windowEnd = new Date(nextYear, nextMonth - 1, 6);
         windowEnd.setHours(0, 0, 0, 0);
 
         if (now < windowStart || now >= windowEnd) {
@@ -62,8 +62,6 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch shifts for the period
-    // For custom date ranges (from/to), end date is inclusive (lte)
-    // For monthly downloads, end date is exclusive (lt) since endDate = first of next month
     const dateFilter: any = { gte: startDate };
     if (useLte) {
       dateFilter.lte = endDate;
@@ -97,17 +95,114 @@ export async function GET(request: NextRequest) {
 
     // Helper to get effective pay rate for a company on a specific date
     function getEffectiveRate(companyId: string, date: string, shiftRate: number): number {
-      // Shift-level override takes precedence
       if (shiftRate && shiftRate > 0) return shiftRate;
-      // Check pay rate history for the most recent effective rate
       const history = rateHistoryMap.get(companyId) || [];
       const effectiveRate = history.find((r: any) => r.effectiveFrom <= date);
       if (effectiveRate) return effectiveRate.payRate;
-      // Fall back to company default rate
       return companyMap.get(companyId)?.payRate || 0;
     }
 
-    // Group shifts by date
+    // Group shifts by company first, then by date within each company
+    const shiftsByCompany = new Map<string, Map<string, any[]>>();
+    const allDatesSet = new Set<string>();
+    for (const shift of shifts) {
+      const companyName = shift.company?.name || 'Unknown';
+      const dateStr = shift.date;
+      allDatesSet.add(dateStr);
+      if (!shiftsByCompany.has(companyName)) {
+        shiftsByCompany.set(companyName, new Map());
+      }
+      const companyDates = shiftsByCompany.get(companyName)!;
+      if (!companyDates.has(dateStr)) {
+        companyDates.set(dateStr, []);
+      }
+      companyDates.get(dateStr)!.push(shift);
+    }
+
+    // Calculate totals
+    let totalHours = 0;
+    let totalEarnings = 0;
+    const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    // Build company sections — each company gets its own table with company name as heading
+    const companySections: string[] = [];
+    const sortedCompanyNames = [...shiftsByCompany.keys()].sort();
+
+    for (const companyName of sortedCompanyNames) {
+      const companyDates = shiftsByCompany.get(companyName)!;
+      const sortedDates = [...companyDates.keys()].sort();
+
+      const rows: string[] = [];
+      let companyHours = 0;
+      let companyEarnings = 0;
+
+      for (const dateStr of sortedDates) {
+        const dayShifts = companyDates.get(dateStr)!;
+        const d = new Date(dateStr + 'T00:00:00');
+        const dayName = DAY_NAMES[d.getDay()];
+
+        for (let i = 0; i < dayShifts.length; i++) {
+          const s = dayShifts[i];
+          const rate = getEffectiveRate(s.companyId, dateStr, s.payRate);
+          const earnings = s.totalHours * rate;
+          totalHours += s.totalHours;
+          totalEarnings += earnings;
+          companyHours += s.totalHours;
+          companyEarnings += earnings;
+
+          const isFirstInGroup = i === 0;
+          const dateCell = isFirstInGroup
+            ? `<td class="date-cell" rowspan="${dayShifts.length}">${dayName}<br>${formatDate(dateStr)}</td>`
+            : '';
+
+          const clientCell = s.client ? `<td class="client-cell">${escapeHtml(s.client)}</td>` : '<td class="client-cell">–</td>';
+          const notesCell = s.notes ? `<td class="notes-cell">${escapeHtml(s.notes)}</td>` : '<td class="notes-cell">–</td>';
+
+          rows.push(`
+            <tr class="shift-row">
+              ${dateCell}
+              <td>${escapeHtml(s.startTime)} – ${escapeHtml(s.endTime)}</td>
+              <td class="num">${s.totalHours.toFixed(1)}h</td>
+              <td class="num">${s.breakMinutes}m</td>
+              <td>${escapeHtml(s.shiftType)}</td>
+              ${clientCell}
+              ${notesCell}
+              <td class="num">&pound;${rate.toFixed(2)}</td>
+              <td class="num earnings">&pound;${earnings.toFixed(2)}</td>
+            </tr>
+          `);
+        }
+      }
+
+      companySections.push(`
+        <div class="company-section">
+          <div class="company-header">
+            <span class="company-name">${escapeHtml(companyName)}</span>
+            <span class="company-stats">${companyHours.toFixed(1)}h &bull; &pound;${companyEarnings.toFixed(2)}</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Time</th>
+                <th class="num">Hours</th>
+                <th class="num">Break</th>
+                <th>Type</th>
+                <th>Client</th>
+                <th>Notes</th>
+                <th class="num">Rate</th>
+                <th class="num">Earnings</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.join('')}
+            </tbody>
+          </table>
+        </div>
+      `);
+    }
+
+    // Build weekly summary
     const shiftsByDate = new Map<string, any[]>();
     for (const shift of shifts) {
       const dateStr = shift.date;
@@ -116,49 +211,7 @@ export async function GET(request: NextRequest) {
       }
       shiftsByDate.get(dateStr)!.push(shift);
     }
-
-    // Calculate totals
-    let totalHours = 0;
-    let totalEarnings = 0;
-    const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-    // Build shift rows with date grouping
-    const rows: string[] = [];
     const sortedDates = [...shiftsByDate.keys()].sort();
-
-    for (const dateStr of sortedDates) {
-      const dayShifts = shiftsByDate.get(dateStr)!;
-      const d = new Date(dateStr + 'T00:00:00');
-      const dayName = DAY_NAMES[d.getDay()];
-
-      for (let i = 0; i < dayShifts.length; i++) {
-        const s = dayShifts[i];
-        const rate = getEffectiveRate(s.companyId, dateStr, s.payRate);
-        const earnings = s.totalHours * rate;
-        totalHours += s.totalHours;
-        totalEarnings += earnings;
-
-        const isFirstInGroup = i === 0;
-        const dateCell = isFirstInGroup
-          ? `<td class="date-cell" rowspan="${dayShifts.length}">${dayName}<br>${formatDate(dateStr)}</td>`
-          : '';
-
-        rows.push(`
-          <tr class="shift-row">
-            ${dateCell}
-            <td>${escapeHtml(s.company.name)}</td>
-            <td>${escapeHtml(s.startTime)} – ${escapeHtml(s.endTime)}</td>
-            <td class="num">${s.totalHours.toFixed(1)}h</td>
-            <td class="num">${s.breakMinutes}m</td>
-            <td>${escapeHtml(s.shiftType)}</td>
-            <td class="num">&pound;${rate.toFixed(2)}</td>
-            <td class="num earnings">&pound;${earnings.toFixed(2)}</td>
-          </tr>
-        `);
-      }
-    }
-
-    // Build weekly summary
     const weeklySummary = buildWeeklySummary(shiftsByDate, sortedDates, companyMap, rateHistoryMap);
 
     const userName = escapeHtml(user.name || user.email.split('@')[0]);
@@ -203,7 +256,7 @@ export async function GET(request: NextRequest) {
       position: relative;
       z-index: 1;
       padding: 32px 40px;
-      max-width: 1100px;
+      max-width: 1200px;
       margin: 0 auto;
     }
 
@@ -212,18 +265,18 @@ export async function GET(request: NextRequest) {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      margin-bottom: 28px;
-      padding-bottom: 18px;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
       border-bottom: 3px solid #2563eb;
     }
     .header-left h1 {
-      font-size: 24px;
+      font-size: 22px;
       font-weight: 700;
       color: #2563eb;
       margin-bottom: 2px;
     }
     .header-left .subtitle {
-      font-size: 14px;
+      font-size: 13px;
       color: #64748b;
       margin-bottom: 6px;
     }
@@ -252,7 +305,7 @@ export async function GET(request: NextRequest) {
     /* ===== SUMMARY CARDS ===== */
     .summary-cards {
       display: flex;
-      gap: 16px;
+      gap: 12px;
       margin-bottom: 24px;
     }
     .summary-card {
@@ -260,20 +313,44 @@ export async function GET(request: NextRequest) {
       background: #f8fafc;
       border: 1px solid #e2e8f0;
       border-radius: 8px;
-      padding: 14px 16px;
+      padding: 12px 14px;
       text-align: center;
     }
     .summary-card .value {
-      font-size: 22px;
+      font-size: 20px;
       font-weight: 700;
       color: #2563eb;
     }
     .summary-card .label {
-      font-size: 11px;
+      font-size: 10px;
       color: #64748b;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       margin-top: 2px;
+    }
+
+    /* ===== COMPANY SECTION ===== */
+    .company-section {
+      margin-bottom: 20px;
+    }
+    .company-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      border-radius: 8px 8px 0 0;
+      color: #fff;
+    }
+    .company-header .company-name {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+    .company-header .company-stats {
+      font-size: 12px;
+      opacity: 0.9;
+      font-weight: 500;
     }
 
     /* ===== TABLE ===== */
@@ -288,32 +365,35 @@ export async function GET(request: NextRequest) {
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 12px;
-      margin-bottom: 24px;
+      font-size: 11px;
+      margin-bottom: 0;
     }
 
     thead th {
-      background: #2563eb;
-      color: #fff;
-      padding: 10px 8px;
+      background: #f1f5f9;
+      color: #334155;
+      padding: 8px 6px;
       text-align: left;
       font-weight: 600;
-      font-size: 11px;
+      font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0.3px;
-      border: 1px solid #1d4ed8;
+      border: 1px solid #e2e8f0;
       position: sticky;
       top: 0;
     }
     thead th.num { text-align: right; }
 
     tbody td {
-      padding: 8px 8px;
+      padding: 6px 6px;
       border: 1px solid #e2e8f0;
       vertical-align: middle;
+      font-size: 11px;
     }
     tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
     tbody td.earnings { font-weight: 600; color: #059669; }
+    tbody td.client-cell { color: #6366f1; font-weight: 500; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    tbody td.notes-cell { color: #64748b; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; }
 
     tbody .date-cell {
       font-weight: 600;
@@ -322,6 +402,9 @@ export async function GET(request: NextRequest) {
       text-align: center;
       line-height: 1.35;
     }
+
+    .company-section table { border-radius: 0 0 8px 8px; overflow: hidden; }
+    .company-section table thead th { border-bottom: 2px solid #2563eb; }
 
     tbody tr.shift-row:nth-child(even) td { background: #f8fafc; }
     tbody tr.shift-row:hover td { background: #eff6ff; }
@@ -334,7 +417,7 @@ export async function GET(request: NextRequest) {
     }
 
     /* ===== WEEKLY SUMMARY ===== */
-    .weekly-section { margin-bottom: 24px; }
+    .weekly-section { margin-bottom: 24px; margin-top: 8px; }
     .weekly-section .table-title { margin-top: 8px; }
     .weekly-table {
       font-size: 12px;
@@ -345,7 +428,7 @@ export async function GET(request: NextRequest) {
 
     /* ===== FOOTER ===== */
     .footer {
-      margin-top: 32px;
+      margin-top: 24px;
       padding-top: 12px;
       border-top: 2px solid #e2e8f0;
       display: flex;
@@ -382,29 +465,28 @@ export async function GET(request: NextRequest) {
         color: rgba(37, 99, 235, 0.04);
       }
 
-      /* Keep header & summary with the table */
       .header,
       .summary-cards {
         break-after: avoid;
         break-inside: avoid;
       }
 
-      /* Never break inside a shift row or date group */
+      .company-section {
+        break-inside: avoid;
+      }
+
       tbody tr.shift-row {
         break-inside: avoid;
       }
 
-      /* Keep the table title with its table */
       .table-title {
         break-after: avoid;
       }
 
-      /* Weekly section stays together if possible */
       .weekly-section {
         break-inside: auto;
       }
 
-      /* Footer on every printed page */
       .footer {
         position: fixed;
         bottom: 0;
@@ -415,14 +497,11 @@ export async function GET(request: NextRequest) {
         margin: 0;
       }
 
-      /* Remove hover effects for print */
       tbody tr.shift-row:hover td { background: inherit; }
 
-      /* Ensure table headers repeat on each page */
       thead { display: table-header-group; }
       tfoot { display: table-footer-group; }
 
-      /* Expand table to fill page */
       table { width: 100%; }
     }
 
@@ -457,7 +536,7 @@ export async function GET(request: NextRequest) {
   <div class="header">
     <div class="header-left">
       <h1>TrishulHub Pay Tracker</h1>
-      <div class="subtitle">Monthly Shift Rota</div>
+      <div class="subtitle">Shift Rota</div>
       <span class="period-badge">${escapeHtml(monthLabel)}</span>
     </div>
     <div class="header-right">
@@ -491,25 +570,10 @@ export async function GET(request: NextRequest) {
     </div>
   </div>
 
-  <!-- SHIFT TABLE -->
-  <div class="table-title">Shift Details</div>
-  <table>
-    <thead>
-      <tr>
-        <th>Date</th>
-        <th>Company</th>
-        <th>Time</th>
-        <th class="num">Hours</th>
-        <th class="num">Break</th>
-        <th>Type</th>
-        <th class="num">Rate</th>
-        <th class="num">Earnings</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${rows.length > 0 ? rows.join('') : `<tr><td colspan="8" class="no-shifts">No shifts found for this period</td></tr>`}
-    </tbody>
-  </table>
+  <!-- COMPANY SECTIONS (each company has its own table with company name as header) -->
+  ${companySections.length > 0 ? companySections.join('') : `
+    <div class="no-shifts">No shifts found for this period</div>
+  `}
 
   <!-- WEEKLY SUMMARY -->
   ${weeklySummary}
@@ -573,7 +637,6 @@ function buildWeeklySummary(
 ): string {
   if (sortedDates.length === 0) return '';
 
-  // Group dates into ISO weeks
   const weekMap = new Map<string, { hours: number; earnings: number; shifts: number; days: Set<string> }>();
 
   for (const dateStr of sortedDates) {
@@ -638,9 +701,8 @@ function buildWeeklySummary(
 }
 
 function getISOWeekKey(d: Date): string {
-  // Get the Monday of the week containing this date
   const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
   const monday = new Date(d);
   monday.setDate(diff);
   const sunday = new Date(monday);

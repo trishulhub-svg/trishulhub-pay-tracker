@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { companyId, date, startTime, endTime, breakMinutes, shiftType, notes, payRate } = body;
+    const { companyId, date, startTime, endTime, breakMinutes, shiftType, notes, payRate, client } = body;
 
     if (!companyId || !date || !startTime || !endTime) {
       return NextResponse.json({ error: 'Company, date, start time, and end time are required' }, { status: 400 });
@@ -121,6 +121,7 @@ export async function POST(request: NextRequest) {
         shiftType: shiftType || 'REGULAR',
         payRate: shiftPayRate,
         notes: notes || null,
+        client: client || null,
       },
       include: {
         company: { select: { id: true, name: true } },

@@ -21,7 +21,7 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { companyId, date, startTime, endTime, breakMinutes, shiftType, notes, payRate } = body;
+    const { companyId, date, startTime, endTime, breakMinutes, shiftType, notes, payRate, client } = body;
 
     const updateData: Record<string, unknown> = {};
     if (companyId !== undefined) updateData.companyId = companyId;
@@ -33,6 +33,7 @@ export async function PUT(
     if (payRate !== undefined) updateData.payRate = payRate;
     // location field removed from UI - always null
     if (notes !== undefined) updateData.notes = notes || null;
+    if (client !== undefined) updateData.client = client || null;
 
     // Recalculate total hours if time fields changed
     if (startTime !== undefined || endTime !== undefined || breakMinutes !== undefined) {

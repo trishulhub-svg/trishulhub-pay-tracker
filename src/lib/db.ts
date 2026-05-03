@@ -651,9 +651,9 @@ export const shift = {
       const id = generateId()
       const now = nowISO()
       await client.execute({
-        sql: `INSERT INTO Shift (id, userId, companyId, date, startTime, endTime, breakMinutes, totalHours, shiftType, payRate, notes, createdAt, updatedAt)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [id, d.userId, d.companyId, d.date, d.startTime, d.endTime, d.breakMinutes ?? 0, d.totalHours ?? 0, d.shiftType ?? 'REGULAR', d.payRate ?? 0, d.notes ?? null, now, now],
+        sql: `INSERT INTO Shift (id, userId, companyId, date, startTime, endTime, breakMinutes, totalHours, shiftType, payRate, notes, client, createdAt, updatedAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [id, d.userId, d.companyId, d.date, d.startTime, d.endTime, d.breakMinutes ?? 0, d.totalHours ?? 0, d.shiftType ?? 'REGULAR', d.payRate ?? 0, d.notes ?? null, d.client ?? null, now, now],
       })
       return this.findUnique({ where: { id } })
     }

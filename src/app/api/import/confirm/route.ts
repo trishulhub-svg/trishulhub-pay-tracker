@@ -98,6 +98,7 @@ export async function POST(request: NextRequest) {
               shiftType: shift.shiftType || 'REGULAR',
               payRate: shift.payRate || 0,
               notes: shift.notes || null,
+              client: shift.client || null,
             },
           });
           createdShiftIds.push(created.id);
