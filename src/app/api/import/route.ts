@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
-import { getSettingsFromDB } from '@/lib/email';
 import Papa from 'papaparse';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import mammoth from 'mammoth';
@@ -308,8 +307,9 @@ const ZAI_ENDPOINTS: Record<string, string> = {
 };
 
 async function extractWithAI(text: string, companies: any[], importType: string, userId: string, sourceType: string): Promise<{ shifts: any[]; payments: any[]; warnings: string[] }> {
-  // Get the ZAI API key from admin settings
-  const settings = await getSettingsFromDB();
+  // Read AI settings DIRECTLY from DB — no cache — to avoid stale values
+  // across different Vercel serverless function instances
+  const settings = await db.setting.getAll();
   const apiKey = settings.ZAI_API_KEY;
   const model = settings.ZAI_MODEL || 'glm-4.5-flash';
   const endpointKey = settings.ZAI_API_ENDPOINT || 'general';

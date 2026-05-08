@@ -2751,28 +2751,18 @@ function ShiftsView({ user }: { user: SessionUser }) {
         throw new Error(errorMsg);
       }
 
-      const html = await res.text();
-
-      const blob = new Blob([html], { type: 'text/html' });
-      const blobUrl = URL.createObjectURL(blob);
-      const printWindow = window.open(blobUrl, '_blank');
-
-      if (printWindow) {
-        printWindow.onload = () => {
-          setTimeout(() => {
-            try {
-              printWindow.print();
-            } catch {
-              // Some browsers block cross-origin print calls
-            }
-            setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
-          }, 800);
-        };
-      } else {
-        toast.error('Please allow popups to download the rota');
-        URL.revokeObjectURL(blobUrl);
-      }
+      // Server returns actual PDF binary
+      const pdfBlob = await res.blob();
+      const blobUrl = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `TrishulHub-Rota-${monthLabel || 'shifts'}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
       setShowRotaDialog(false);
+      toast.success('PDF downloaded successfully!');
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to download rota');
     } finally {
@@ -2799,7 +2789,7 @@ function ShiftsView({ user }: { user: SessionUser }) {
     return formatDateStr(weekDates[0]) === formatDateStr(currentWeekDates[0]);
   })();
 
-  // ProdiHours-style Shift Card renderer
+  // Compact Shift Card renderer
   const renderShiftCard = (shift: Shift) => {
     const shiftType = SHIFT_TYPES.find((t) => t.value === shift.shiftType) || SHIFT_TYPES[0];
     const totalH = Number(shift.totalHours) || 0;
@@ -2812,51 +2802,51 @@ function ShiftsView({ user }: { user: SessionUser }) {
     return (
       <div
         key={shift.id}
-        className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer group"
+        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-muted/50 transition-colors cursor-pointer group"
         onClick={() => setEditShift(shift)}
       >
         {/* Left: Shift type color indicator */}
-        <div className={`w-1 self-stretch rounded-full shrink-0 ${shiftType.color}`} />
+        <div className={`w-0.5 self-stretch rounded-full shrink-0 ${shiftType.color}`} />
 
         {/* Center: Shift details */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-0.5">
-            {/* Time display */}
-            <span className="text-sm font-semibold text-foreground tabular-nums">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-semibold text-foreground tabular-nums">
               {formatTime12h(shift.startTime)} – {formatTime12h(shift.endTime)}
             </span>
             <Badge
-              className={`text-[9px] px-1.5 py-0 h-4 ${shiftType.color} text-white border-0`}
+              className="text-[8px] px-1 py-0 h-3.5 leading-3"
+              variant="outline"
             >
               {shiftType.label}
             </Badge>
             {shift.client && (
-              <span className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium truncate max-w-[120px]">
+              <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium truncate max-w-[100px]">
                 {shift.client}
               </span>
             )}
           </div>
           {shift.notes && (
-            <p className="text-[11px] text-muted-foreground truncate">{shift.notes}</p>
+            <p className="text-[10px] text-muted-foreground truncate mt-0.5">{shift.notes}</p>
           )}
         </div>
 
         {/* Right: Duration + Pay */}
-        <div className="text-right shrink-0">
-          <div className="text-sm font-bold text-foreground tabular-nums">{durationStr}</div>
-          <div className="text-xs font-semibold text-green-600 dark:text-green-400 tabular-nums">
+        <div className="text-right shrink-0 flex items-center gap-2">
+          <span className="text-xs font-bold text-foreground tabular-nums">{durationStr}</span>
+          <span className="text-xs font-semibold text-green-600 dark:text-green-400 tabular-nums min-w-[50px] text-right">
             £{shiftEarnings.toFixed(2)}
-          </div>
+          </span>
         </div>
 
         {/* Delete button (shown on hover) */}
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+          className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
           onClick={(e) => { e.stopPropagation(); setDeleteId(shift.id); }}
         >
-          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+          <Trash2 className="h-3 w-3 text-destructive" />
         </Button>
       </div>
     );
@@ -2888,11 +2878,11 @@ function ShiftsView({ user }: { user: SessionUser }) {
   }
 
   return (
-    <div className="p-4 md:p-6 md:ml-64 space-y-4 max-w-6xl overflow-x-hidden">
+    <div className="p-3 md:p-4 md:ml-64 space-y-2 max-w-6xl overflow-x-hidden">
       {/* Header with title + view toggle + action buttons */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
-          <h1 className="text-xl font-bold text-foreground">Shifts</h1>
+          <h1 className="text-lg font-bold text-foreground">Shifts</h1>
           {/* View Toggle Tabs */}
           <div className="flex items-center bg-muted rounded-lg p-0.5">
             <button
@@ -2952,21 +2942,21 @@ function ShiftsView({ user }: { user: SessionUser }) {
         </div>
       </div>
 
-      {/* ProdiHours-style Summary: Total Hours + Total Pay */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-gradient-to-br from-blue-600 to-blue-700 dark:from-blue-700 dark:to-blue-800 rounded-xl p-4 text-white shadow-sm">
-          <p className="text-xs font-medium text-blue-100 uppercase tracking-wide mb-1">Total Hours</p>
-          <p className="text-2xl sm:text-3xl font-bold tabular-nums">{totalHours.toFixed(1)}<span className="text-base font-normal text-blue-200 ml-1">h</span></p>
-          <div className="mt-2 border-t border-blue-400/30 pt-1.5 flex items-center gap-1 text-xs text-blue-200">
+      {/* Compact Summary: Total Hours + Total Pay */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-gradient-to-br from-blue-600 to-blue-700 dark:from-blue-700 dark:to-blue-800 rounded-lg p-3 text-white shadow-sm">
+          <p className="text-[10px] font-medium text-blue-100 uppercase tracking-wide mb-0.5">Total Hours</p>
+          <p className="text-xl sm:text-2xl font-bold tabular-nums">{totalHours.toFixed(1)}<span className="text-sm font-normal text-blue-200 ml-1">h</span></p>
+          <div className="mt-1 border-t border-blue-400/30 pt-1 flex items-center gap-1 text-[10px] text-blue-200">
             <span>{totalShifts} shift{totalShifts !== 1 ? 's' : ''}</span>
-            <span className="text-blue-400/60">•</span>
+            <span className="text-blue-400/60">·</span>
             <span>{uniqueDays.length} day{uniqueDays.length !== 1 ? 's' : ''}</span>
           </div>
         </div>
-        <div className="bg-gradient-to-br from-emerald-600 to-emerald-700 dark:from-emerald-700 dark:to-emerald-800 rounded-xl p-4 text-white shadow-sm">
-          <p className="text-xs font-medium text-emerald-100 uppercase tracking-wide mb-1">Total Pay</p>
-          <p className="text-2xl sm:text-3xl font-bold tabular-nums">£{totalEarnings.toFixed(2)}</p>
-          <div className="mt-2 border-t border-emerald-400/30 pt-1.5 flex items-center gap-1 text-xs text-emerald-200">
+        <div className="bg-gradient-to-br from-emerald-600 to-emerald-700 dark:from-emerald-700 dark:to-emerald-800 rounded-lg p-3 text-white shadow-sm">
+          <p className="text-[10px] font-medium text-emerald-100 uppercase tracking-wide mb-0.5">Total Pay</p>
+          <p className="text-xl sm:text-2xl font-bold tabular-nums">£{totalEarnings.toFixed(2)}</p>
+          <div className="mt-1 border-t border-emerald-400/30 pt-1 flex items-center gap-1 text-[10px] text-emerald-200">
             <span>£{avgRatePerHr.toFixed(2)}/hr avg</span>
           </div>
         </div>
@@ -3012,7 +3002,7 @@ function ShiftsView({ user }: { user: SessionUser }) {
           </div>
 
           {/* Day shifts */}
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {(() => {
               const dayShifts = getShiftsForDay(dayDate);
               const isCurrentDay = isToday(dayDate);
@@ -3021,38 +3011,38 @@ function ShiftsView({ user }: { user: SessionUser }) {
               const dayEarnings = dayShifts.reduce((acc, s) => acc + (Number(s.totalHours) || 0) * (Number(s.payRate) || 0), 0);
               return (
                 <Card className={`border-border overflow-hidden ${isCurrentDay ? 'ring-2 ring-blue-500/30 dark:ring-blue-400/30' : ''}`}>
-                  {/* Day header bar */}
-                  <div className={`flex items-center justify-between px-3 py-2 ${dayShifts.length > 0 ? 'bg-muted/60 border-b border-border' : ''}`}>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded ${isCurrentDay ? 'bg-blue-600 text-white' : 'bg-muted text-muted-foreground'}`}>
+                  {/* Day header — compact */}
+                  <div className={`flex items-center justify-between px-2.5 py-1.5 ${dayShifts.length > 0 ? 'bg-muted/60 border-b border-border' : ''}`}>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${isCurrentDay ? 'bg-blue-600 text-white' : 'bg-muted text-muted-foreground'}`}>
                         {DAY_NAMES_FULL[dayDate.getDay() === 0 ? 6 : dayDate.getDay() - 1]}
                       </span>
-                      <span className="text-sm text-foreground font-medium">
+                      <span className="text-xs text-foreground font-medium">
                         {dayDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                       </span>
-                      {isCurrentDay && <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 text-[10px] px-1.5 py-0">Today</Badge>}
+                      {isCurrentDay && <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 text-[9px] px-1 py-0 h-3.5 leading-3">Today</Badge>}
                       {dayCompanies.length > 0 && (
-                        <span className="text-[11px] text-muted-foreground font-medium truncate max-w-[150px]">
+                        <span className="text-[10px] text-muted-foreground font-medium truncate max-w-[120px]">
                           {dayCompanies.join(', ')}
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       {dayShifts.length > 0 && (
-                        <span className="text-xs text-muted-foreground tabular-nums">
-                          {dayHours.toFixed(1)}h &bull; £{dayEarnings.toFixed(2)}
+                        <span className="text-[10px] text-muted-foreground tabular-nums">
+                          {dayHours.toFixed(1)}h · £{dayEarnings.toFixed(2)}
                         </span>
                       )}
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7"
+                        className="h-6 w-6"
                         onClick={() => {
                           setSelectedShiftId(null);
                           setSelectedDay(dayDate);
                         }}
                       >
-                        <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+                        <Plus className="h-3 w-3 text-muted-foreground" />
                       </Button>
                     </div>
                   </div>
@@ -3105,71 +3095,61 @@ function ShiftsView({ user }: { user: SessionUser }) {
             </Button>
           </div>
 
-          {/* Weekly Calendar Grid — ProdiHours Style */}
-          <div className="space-y-2">
+          {/* Weekly Calendar Grid — Compact Style */}
+          <div className="space-y-1.5">
             {weekDates.map((date, idx) => {
               const dayShifts = getShiftsForDay(date);
               const isCurrentDay = isToday(date);
               const isWeekend = idx >= 5;
               const dayHours = dayShifts.reduce((acc, s) => acc + (Number(s.totalHours) || 0), 0);
               const dayEarnings = dayShifts.reduce((acc, s) => acc + (Number(s.totalHours) || 0) * (Number(s.payRate) || 0), 0);
-              // Get unique company names for this day
               const dayCompanies = [...new Set(dayShifts.map(s => s.company?.name).filter(Boolean))];
 
               return (
-                <motion.div
-                  key={formatDateStr(date)}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.03 }}
-                >
-                  <Card className={`border-border overflow-hidden ${isCurrentDay ? 'ring-2 ring-blue-500/30 dark:ring-blue-400/30' : ''} ${isWeekend ? 'bg-muted/20 dark:bg-muted/10' : ''}`}>
-                    {/* Day header bar — company name shown here */}
-                    <div className={`flex items-center justify-between px-3 py-2 ${dayShifts.length > 0 ? 'bg-muted/60 border-b border-border' : ''}`}>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-xs font-semibold px-2 py-0.5 rounded ${isCurrentDay ? 'bg-blue-600 text-white' : 'bg-muted text-muted-foreground'}`}>
-                          {DAY_NAMES[idx]}
+                <Card key={formatDateStr(date)} className={`border-border overflow-hidden ${isCurrentDay ? 'ring-2 ring-blue-500/30 dark:ring-blue-400/30' : ''} ${isWeekend ? 'bg-muted/20 dark:bg-muted/10' : ''}`}>
+                  {/* Day header — compact */}
+                  <div className={`flex items-center justify-between px-2.5 py-1.5 ${dayShifts.length > 0 ? 'bg-muted/60 border-b border-border' : ''}`}>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${isCurrentDay ? 'bg-blue-600 text-white' : 'bg-muted text-muted-foreground'}`}>
+                        {DAY_NAMES[idx]}
+                      </span>
+                      <span className="text-xs text-foreground font-medium">
+                        {date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                      </span>
+                      {isCurrentDay && <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 text-[9px] px-1 py-0 h-3.5 leading-3">Today</Badge>}
+                      {dayCompanies.length > 0 && (
+                        <span className="text-[10px] text-muted-foreground font-medium truncate max-w-[120px]">
+                          {dayCompanies.join(', ')}
                         </span>
-                        <span className="text-sm text-foreground font-medium">
-                          {date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                        </span>
-                        {isCurrentDay && <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 text-[10px] px-1.5 py-0">Today</Badge>}
-                        {/* Company name at day level */}
-                        {dayCompanies.length > 0 && (
-                          <span className="text-[11px] text-muted-foreground font-medium truncate max-w-[150px]">
-                            {dayCompanies.join(', ')}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {dayShifts.length > 0 && (
-                          <span className="text-xs text-muted-foreground tabular-nums">
-                            {dayHours.toFixed(1)}h &bull; £{dayEarnings.toFixed(2)}
-                          </span>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={() => {
-                            setSelectedShiftId(null);
-                            setSelectedDay(date);
-                          }}
-                        >
-                          <Plus className="h-3.5 w-3.5 text-muted-foreground" />
-                        </Button>
-                      </div>
+                      )}
                     </div>
-                    {/* Shifts for this day */}
-                    {dayShifts.length === 0 ? (
-                      <p className="text-xs text-muted-foreground px-3 py-2">No shift</p>
-                    ) : (
-                      <div className="divide-y divide-border/50">
-                        {dayShifts.map((shift) => renderShiftCard(shift))}
-                      </div>
-                    )}
-                  </Card>
-                </motion.div>
+                    <div className="flex items-center gap-1.5">
+                      {dayShifts.length > 0 && (
+                        <span className="text-[10px] text-muted-foreground tabular-nums">
+                          {dayHours.toFixed(1)}h · £{dayEarnings.toFixed(2)}
+                        </span>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => {
+                          setSelectedShiftId(null);
+                          setSelectedDay(date);
+                        }}
+                      >
+                        <Plus className="h-3 w-3 text-muted-foreground" />
+                      </Button>
+                    </div>
+                  </div>
+                  {dayShifts.length === 0 ? (
+                    <p className="text-[10px] text-muted-foreground px-2.5 py-1">No shift</p>
+                  ) : (
+                    <div className="divide-y divide-border/50">
+                      {dayShifts.map((shift) => renderShiftCard(shift))}
+                    </div>
+                  )}
+                </Card>
               );
             })}
           </div>
@@ -3200,7 +3180,7 @@ function ShiftsView({ user }: { user: SessionUser }) {
           </div>
 
           {/* Month shifts grouped by date */}
-          <div className="space-y-2 max-h-[60vh] overflow-y-auto custom-scrollbar">
+          <div className="space-y-1.5 max-h-[70vh] overflow-y-auto custom-scrollbar pr-1">
             {(() => {
               const mShifts = getShiftsForMonth(monthDate.getFullYear(), monthDate.getMonth() + 1);
               if (mShifts.length === 0) {
@@ -3244,42 +3224,37 @@ function ShiftsView({ user }: { user: SessionUser }) {
                 const dayCompanies = [...new Set(dayShifts.map(s => s.company?.name).filter(Boolean))];
 
                 return (
-                  <motion.div
-                    key={dateStr}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                  >
-                    <Card className={`border-border overflow-hidden ${isCurrentDay ? 'ring-2 ring-blue-500/30 dark:ring-blue-400/30' : ''} ${isWeekend ? 'bg-muted/20 dark:bg-muted/10' : ''}`}>
-                      {/* Day header bar — ProdiHours style */}
-                      <div className="flex items-center justify-between px-3 py-2 bg-muted/60 border-b border-border">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded ${isCurrentDay ? 'bg-blue-600 text-white' : 'bg-muted text-muted-foreground'}`}>
+                  <Card key={dateStr} className={`border-border overflow-hidden ${isCurrentDay ? 'ring-2 ring-blue-500/30 dark:ring-blue-400/30' : ''} ${isWeekend ? 'bg-muted/20 dark:bg-muted/10' : ''}`}>
+                      {/* Day header — compact */}
+                      <div className="flex items-center justify-between px-2.5 py-1.5 bg-muted/60 border-b border-border">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${isCurrentDay ? 'bg-blue-600 text-white' : 'bg-muted text-muted-foreground'}`}>
                             {dayName}
                           </span>
-                          <span className="text-sm text-foreground font-medium">
+                          <span className="text-xs text-foreground font-medium">
                             {date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                           </span>
-                          {isCurrentDay && <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 text-[10px] px-1.5 py-0">Today</Badge>}
+                          {isCurrentDay && <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 text-[9px] px-1 py-0 h-3.5 leading-3">Today</Badge>}
                           {dayCompanies.length > 0 && (
-                            <span className="text-[11px] text-muted-foreground font-medium truncate max-w-[150px]">
+                            <span className="text-[10px] text-muted-foreground font-medium truncate max-w-[120px]">
                               {dayCompanies.join(', ')}
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground tabular-nums">
-                            {dayHours.toFixed(1)}h &bull; £{dayEarnings.toFixed(2)}
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-muted-foreground tabular-nums">
+                            {dayHours.toFixed(1)}h · £{dayEarnings.toFixed(2)}
                           </span>
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7"
+                            className="h-6 w-6"
                             onClick={() => {
                               setSelectedShiftId(null);
                               setSelectedDay(date);
                             }}
                           >
-                            <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+                            <Plus className="h-3 w-3 text-muted-foreground" />
                           </Button>
                         </div>
                       </div>
@@ -3287,7 +3262,6 @@ function ShiftsView({ user }: { user: SessionUser }) {
                           {dayShifts.map((shift) => renderShiftCard(shift))}
                         </div>
                     </Card>
-                  </motion.div>
                 );
               });
             })()}
