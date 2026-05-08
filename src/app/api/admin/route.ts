@@ -64,7 +64,7 @@ export async function GET() {
     }));
 
     // Monthly signups trend (last 6 months)
-    const monthlySignups = [];
+    const monthlySignups: Array<{ month: string; count: number }> = [];
     for (let i = 5; i >= 0; i--) {
       const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);

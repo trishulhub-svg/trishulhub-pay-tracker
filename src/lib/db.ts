@@ -851,14 +851,20 @@ export const otpCode = {
     return prisma.otpCode.update(args as any)
   },
 
-  async deleteMany(args: { where: { email: string; type?: string } }) {
+  async deleteMany(args: { where: { email: string; type?: string; code?: string } }) {
     if (useTurso()) {
       const client = getTursoClient()
+      const conditions: string[] = ['email = ?']
+      const values: any[] = [args.where.email]
       if (args.where.type) {
-        await client.execute({ sql: 'DELETE FROM OtpCode WHERE email = ? AND type = ?', args: [args.where.email, args.where.type] })
-      } else {
-        await client.execute({ sql: 'DELETE FROM OtpCode WHERE email = ?', args: [args.where.email] })
+        conditions.push('type = ?')
+        values.push(args.where.type)
       }
+      if (args.where.code) {
+        conditions.push('code = ?')
+        values.push(args.where.code)
+      }
+      await client.execute({ sql: `DELETE FROM OtpCode WHERE ${conditions.join(' AND ')}`, args: values })
       return { count: 0 }
     }
     const prisma = getPrismaClient()

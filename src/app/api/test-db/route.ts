@@ -22,7 +22,7 @@ export async function GET() {
     
     // Test 3: Direct string comparison
     let emailMatch = false;
-    let emailDetails = null;
+    let emailDetails: Record<string, unknown> | null = null;
     if (r2.rows.length > 0) {
       const dbEmail = r2.rows[0].email as string;
       emailMatch = dbEmail === 'admin@trishulhub.com';
@@ -35,7 +35,7 @@ export async function GET() {
     }
     
     // Test 4: Password hash comparison
-    let passwordInfo = null;
+    let passwordInfo: Record<string, unknown> | null = null;
     if (r1.rows.length > 0) {
       const storedPassword = r1.rows[0].password as string;
       const computedHash = await hashPassword('admin123');

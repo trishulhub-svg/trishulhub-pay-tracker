@@ -123,10 +123,7 @@ export async function POST(request: NextRequest) {
         notes: notes || null,
         client: client || null,
       },
-      include: {
-        company: { select: { id: true, name: true } },
-      },
-    });
+    } as any);
 
     return NextResponse.json({ shift }, { status: 201 });
   } catch (error) {

@@ -10,7 +10,7 @@ export interface SessionUser {
 }
 
 type AuthView = 'login' | 'signup';
-type CurrentView = 'dashboard' | 'records' | 'add-record' | 'edit-record' | 'companies' | 'add-company' | 'shifts' | 'add-shift' | 'edit-shift' | 'referrals' | 'settings' | 'admin';
+type CurrentView = 'dashboard' | 'records' | 'add-record' | 'edit-record' | 'companies' | 'add-company' | 'shifts' | 'add-shift' | 'edit-shift' | 'import' | 'referrals' | 'settings' | 'admin';
 
 interface AppState {
   // Auth

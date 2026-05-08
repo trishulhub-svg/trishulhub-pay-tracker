@@ -46,12 +46,7 @@ export async function PUT(
     const record = await db.paymentRecord.update({
       where: { id },
       data: updateData,
-      include: {
-        company: {
-          select: { id: true, name: true },
-        },
-      },
-    });
+    } as any);
 
     return NextResponse.json({ record });
   } catch (error) {

@@ -57,10 +57,7 @@ export async function PUT(
     const shift = await db.shift.update({
       where: { id },
       data: updateData,
-      include: {
-        company: { select: { id: true, name: true } },
-      },
-    });
+    } as any);
 
     return NextResponse.json({ shift });
   } catch (error) {

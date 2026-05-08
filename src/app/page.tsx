@@ -355,7 +355,7 @@ function ScrollColumn({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const isScrolling = useRef(false);
-  const scrollTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const scrollTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Scroll to selected item on mount or when selectedIndex changes externally
   useEffect(() => {
@@ -633,7 +633,7 @@ export default function TrishulHubPayTracker() {
     <div className="min-h-screen flex flex-col bg-background">
       {/* Desktop sidebar + main content */}
       <div className="flex flex-1">
-        {!isMobile && <DesktopSidebar currentView={currentView} setCurrentView={setCurrentView} onLogout={handleLogout} user={user} theme={theme} setTheme={setTheme} />}
+        {!isMobile && <DesktopSidebar currentView={currentView} setCurrentView={setCurrentView as (v: string) => void} onLogout={handleLogout} user={user} theme={theme} setTheme={setTheme} />}
 
         {/* Main content area */}
         <main className="flex-1 min-h-screen pb-24 md:pb-0">
@@ -647,7 +647,7 @@ export default function TrishulHubPayTracker() {
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              {currentView === 'dashboard' && <DashboardView user={user} setCurrentView={setCurrentView} />}
+              {currentView === 'dashboard' && <DashboardView user={user} setCurrentView={setCurrentView as (v: string) => void} />}
               {currentView === 'records' && <RecordsView />}
               {currentView === 'add-record' && <RecordFormView />}
               {currentView === 'edit-record' && <RecordFormView isEdit />}
@@ -665,7 +665,7 @@ export default function TrishulHubPayTracker() {
 
       {/* Mobile bottom navigation */}
       {isMobile && (
-        <MobileBottomNav currentView={currentView} setCurrentView={setCurrentView} user={user} theme={theme} setTheme={setTheme} />
+        <MobileBottomNav currentView={currentView} setCurrentView={setCurrentView as (v: string) => void} user={user} theme={theme} setTheme={setTheme} />
       )}
     </div>
   );
@@ -2756,7 +2756,9 @@ function ShiftsView({ user }: { user: SessionUser }) {
       const blobUrl = URL.createObjectURL(pdfBlob);
       const link = document.createElement('a');
       link.href = blobUrl;
-      link.download = `TrishulHub-Rota-${monthLabel || 'shifts'}.pdf`;
+      const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const downloadLabel = (user.isPremium && rotaFrom && rotaTo) ? `${rotaFrom}-to-${rotaTo}` : `${MONTHS[(rotaMonth || 1) - 1]}-${rotaYear || new Date().getFullYear()}`;
+      link.download = `TrishulHub-Rota-${downloadLabel}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

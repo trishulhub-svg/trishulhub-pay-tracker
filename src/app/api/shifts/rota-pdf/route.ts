@@ -152,7 +152,7 @@ export async function GET(request: NextRequest) {
       { label: 'Total Shifts', value: `${shifts.length}` },
       { label: 'Total Earnings', value: `£${totalEarnings.toFixed(2)}` },
       { label: 'Working Days', value: `${allDatesSet.size}` },
-      { label: 'Avg/Day', value: `£${allDatesSet.size > 0 ? (totalEarnings / allDatesSet.length).toFixed(2) : '0.00'}` },
+      { label: 'Avg/Day', value: `£${allDatesSet.size > 0 ? (totalEarnings / allDatesSet.size).toFixed(2) : '0.00'}` },
     ];
 
     const statWidth = (pageWidth - margin.left - margin.right) / stats.length;
@@ -189,8 +189,8 @@ export async function GET(request: NextRequest) {
     const tableStyles = {
       theme: 'grid' as const,
       headStyles: {
-        fillColor: [37, 99, 235],
-        textColor: [255, 255, 255],
+        fillColor: [37, 99, 235] as [number, number, number],
+        textColor: [255, 255, 255] as [number, number, number],
         fontStyle: 'bold' as const,
         fontSize: 7,
         cellPadding: { top: 2, bottom: 2, left: 2, right: 2 },
@@ -198,10 +198,10 @@ export async function GET(request: NextRequest) {
       bodyStyles: {
         fontSize: 7,
         cellPadding: { top: 1.5, bottom: 1.5, left: 2, right: 2 },
-        textColor: [30, 41, 59],
+        textColor: [30, 41, 59] as [number, number, number],
       },
       alternateRowStyles: {
-        fillColor: [248, 250, 252],
+        fillColor: [248, 250, 252] as [number, number, number],
       },
       columnStyles: {
         0: { cellWidth: 18 },  // Date
@@ -348,14 +348,14 @@ export async function GET(request: NextRequest) {
           startY: currentY,
           theme: 'striped',
           headStyles: {
-            fillColor: [100, 116, 139],
-            textColor: [255, 255, 255],
+            fillColor: [100, 116, 139] as [number, number, number],
+            textColor: [255, 255, 255] as [number, number, number],
             fontStyle: 'bold' as const,
             fontSize: 7,
           },
           bodyStyles: {
             fontSize: 8,
-            textColor: [30, 41, 59],
+            textColor: [30, 41, 59] as [number, number, number],
           },
           columnStyles: {
             0: { cellWidth: 25 },
