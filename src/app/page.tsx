@@ -296,6 +296,14 @@ function calculateShiftHours(startTime: string, endTime: string, breakMinutes: n
   return Math.max(0, Math.round((workedMinutes / 60) * 100) / 100);
 }
 
+// Format decimal hours into human-readable "Xh XXm" (e.g. 8.12 → "8h 07m")
+function formatHoursMinutes(decimalHours: number): string {
+  if (decimalHours <= 0) return '0h 0m';
+  const h = Math.floor(decimalHours);
+  const m = Math.round((decimalHours - h) * 60);
+  return `${h}h ${m}m`;
+}
+
 function formatTime12h(time24: string): string {
   if (!time24) return '--:--';
   const [h, m] = time24.split(':').map(Number);
@@ -355,6 +363,7 @@ function ScrollColumn({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const isScrolling = useRef(false);
+  const isActive = useRef(false); // tracks if this picker is being actively touched
   const scrollTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Scroll to selected item on mount or when selectedIndex changes externally
@@ -366,7 +375,7 @@ function ScrollColumn({
   }, [selectedIndex]);
 
   const handleScroll = useCallback(() => {
-    if (!ref.current) return;
+    if (!ref.current || !isActive.current) return;
     isScrolling.current = true;
 
     if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
@@ -391,6 +400,16 @@ function ScrollColumn({
       }, 150);
     }, 80);
   }, [items.length, selectedIndex, onSelect]);
+
+  // Touch handlers: only process scroll events when the user is actively touching this picker
+  const handleTouchStart = useCallback(() => {
+    isActive.current = true;
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    // Keep active briefly to let scroll momentum settle
+    setTimeout(() => { isActive.current = false; }, 300);
+  }, []);
 
   // Padding items for centering
   const paddingCount = Math.floor(VISIBLE_ITEMS / 2);
@@ -423,9 +442,12 @@ function ScrollColumn({
       <div
         ref={ref}
         onScroll={handleScroll}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
         className="h-full overflow-y-auto custom-scrollbar"
         style={{
           scrollSnapType: 'y mandatory',
+          touchAction: 'none', // Prevent browser from interpreting touches as page scroll
           WebkitOverflowScrolling: 'touch',
         }}
       >
@@ -1648,7 +1670,7 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
           <CardContent className="space-y-3">
             <div className="flex justify-between items-center">
               <span className="text-sm text-muted-foreground">Total Hours</span>
-              <span className="font-semibold text-foreground">{shiftSummary.totalHours}h</span>
+              <span className="font-semibold text-foreground">{formatHoursMinutes(shiftSummary.totalHours)}</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-sm text-muted-foreground">Total Shifts</span>
@@ -2010,7 +2032,7 @@ function RecordFormView({ isEdit = false }: { isEdit?: boolean }) {
       const data = await apiFetch(`/api/shifts/hours?companyId=${companyId}&month=${month}&year=${year}`);
       if (data.totalHours > 0) {
         setWorkedHours(data.totalHours.toString());
-        setAutoHoursInfo(`Based on your shift records, you worked ${data.totalHours}h across ${data.totalShifts} shift${data.totalShifts !== 1 ? 's' : ''} this month. You can change this if needed.`);
+        setAutoHoursInfo(`Based on your shift records, you worked ${formatHoursMinutes(data.totalHours)} across ${data.totalShifts} shift${data.totalShifts !== 1 ? 's' : ''} this month. You can change this if needed.`);
       } else {
         setAutoHoursInfo(null);
       }
@@ -2799,7 +2821,7 @@ function ShiftsView({ user }: { user: SessionUser }) {
     const shiftEarnings = totalH * payR;
     const hours = Math.floor(totalH);
     const mins = Math.round((totalH - hours) * 60);
-    const durationStr = mins > 0 ? `${hours}:${String(mins).padStart(2, '0')}` : `${hours}:00`;
+    const durationStr = formatHoursMinutes(totalH);
 
     return (
       <div
@@ -2948,7 +2970,7 @@ function ShiftsView({ user }: { user: SessionUser }) {
       <div className="grid grid-cols-2 gap-2">
         <div className="bg-gradient-to-br from-blue-600 to-blue-700 dark:from-blue-700 dark:to-blue-800 rounded-lg p-3 text-white shadow-sm">
           <p className="text-[10px] font-medium text-blue-100 uppercase tracking-wide mb-0.5">Total Hours</p>
-          <p className="text-xl sm:text-2xl font-bold tabular-nums">{totalHours.toFixed(1)}<span className="text-sm font-normal text-blue-200 ml-1">h</span></p>
+          <p className="text-xl sm:text-2xl font-bold tabular-nums">{formatHoursMinutes(totalHours)}</p>
           <div className="mt-1 border-t border-blue-400/30 pt-1 flex items-center gap-1 text-[10px] text-blue-200">
             <span>{totalShifts} shift{totalShifts !== 1 ? 's' : ''}</span>
             <span className="text-blue-400/60">·</span>
@@ -3032,7 +3054,7 @@ function ShiftsView({ user }: { user: SessionUser }) {
                     <div className="flex items-center gap-1.5">
                       {dayShifts.length > 0 && (
                         <span className="text-[10px] text-muted-foreground tabular-nums">
-                          {dayHours.toFixed(1)}h · £{dayEarnings.toFixed(2)}
+                          {formatHoursMinutes(dayHours)} · £{dayEarnings.toFixed(2)}
                         </span>
                       )}
                       <Button
@@ -3128,7 +3150,7 @@ function ShiftsView({ user }: { user: SessionUser }) {
                     <div className="flex items-center gap-1.5">
                       {dayShifts.length > 0 && (
                         <span className="text-[10px] text-muted-foreground tabular-nums">
-                          {dayHours.toFixed(1)}h · £{dayEarnings.toFixed(2)}
+                          {formatHoursMinutes(dayHours)} · £{dayEarnings.toFixed(2)}
                         </span>
                       )}
                       <Button
@@ -3245,7 +3267,7 @@ function ShiftsView({ user }: { user: SessionUser }) {
                         </div>
                         <div className="flex items-center gap-1.5">
                           <span className="text-[10px] text-muted-foreground tabular-nums">
-                            {dayHours.toFixed(1)}h · £{dayEarnings.toFixed(2)}
+                            {formatHoursMinutes(dayHours)} · £{dayEarnings.toFixed(2)}
                           </span>
                           <Button
                             variant="ghost"
@@ -3510,7 +3532,7 @@ function ShiftDaySheet({
             <div className="space-y-2">
               <Label>Total Hours</Label>
               <div className="h-12 flex items-center px-3 rounded-md border border-border bg-muted/50">
-                <span className="text-foreground font-medium">{totalHours}h</span>
+                <span className="text-foreground font-medium">{formatHoursMinutes(totalHours)}</span>
               </div>
             </div>
           </div>
@@ -3546,7 +3568,7 @@ function ShiftDaySheet({
               )}
               {effectiveRate > 0 && (
                 <p className="text-xs text-primary font-medium">
-                  Estimated earnings: £{shiftEarnings.toFixed(2)} ({totalHours}h × £{effectiveRate.toFixed(2)})
+                  Estimated earnings: £{shiftEarnings.toFixed(2)} ({formatHoursMinutes(totalHours)} × £{effectiveRate.toFixed(2)})
                 </p>
               )}
             </div>
@@ -3686,7 +3708,7 @@ function ShiftEditSheet({
             <div className="space-y-2">
               <Label>Total Hours</Label>
               <div className="h-12 flex items-center px-3 rounded-md border border-border bg-muted/50">
-                <span className="text-foreground font-medium">{totalHours}h</span>
+                <span className="text-foreground font-medium">{formatHoursMinutes(totalHours)}</span>
               </div>
             </div>
           </div>
@@ -3722,7 +3744,7 @@ function ShiftEditSheet({
               )}
               {effectiveRate > 0 && (
                 <p className="text-xs text-primary font-medium">
-                  Estimated earnings: £{shiftEarnings.toFixed(2)} ({totalHours}h × £{effectiveRate.toFixed(2)})
+                  Estimated earnings: £{shiftEarnings.toFixed(2)} ({formatHoursMinutes(totalHours)} × £{effectiveRate.toFixed(2)})
                 </p>
               )}
             </div>
@@ -5458,7 +5480,7 @@ function ImportView({ user }: { user: SessionUser }) {
                                   )}
                                 </div>
                                 <p className="text-xs text-muted-foreground mt-0.5">
-                                  {shift.startTime} - {shift.endTime} | {shift.totalHours}h | £{shift.payRate}/hr
+                                  {shift.startTime} - {shift.endTime} | {formatHoursMinutes(shift.totalHours)} | £{shift.payRate}/hr
                                   {shift.companyName && ` | ${shift.companyName}`}
                                   {shift.breakMinutes > 0 && ` | ${shift.breakMinutes}min break`}
                                 </p>
