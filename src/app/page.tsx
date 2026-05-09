@@ -645,7 +645,7 @@ export default function TrishulHubPayTracker() {
         {!isMobile && <DesktopSidebar currentView={currentView} setCurrentView={setCurrentView as (v: string) => void} onLogout={handleLogout} user={user} theme={theme} setTheme={setTheme} />}
 
         {/* Main content area */}
-        <main className="flex-1 min-h-screen pb-24 md:pb-0">
+        <main className="flex-1 min-h-screen pb-24 md:pb-0 overflow-y-scroll custom-scrollbar">
           <AnimatePresence mode="wait">
             <motion.div
               key={currentView}
