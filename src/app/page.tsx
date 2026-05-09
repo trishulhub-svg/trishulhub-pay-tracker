@@ -3489,7 +3489,7 @@ function ShiftDaySheet({
 
   return (
     <Sheet open={open} onOpenChange={(v) => { if (!v) { onClose(); resetForm(); } }}>
-      <SheetContent side="bottom" className="max-h-[90vh] overflow-y-auto custom-scrollbar">
+      <SheetContent side="bottom" className="max-h-[90vh] overflow-y-scroll custom-scrollbar">
         <SheetHeader>
           <SheetTitle>Add Shift – {date.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</SheetTitle>
           <SheetDescription>Add a new shift for this day</SheetDescription>
@@ -3665,7 +3665,7 @@ function ShiftEditSheet({
 
   return (
     <Sheet open={!!shift} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <SheetContent side="bottom" className="max-h-[90vh] overflow-y-auto custom-scrollbar">
+      <SheetContent side="bottom" className="max-h-[90vh] overflow-y-scroll custom-scrollbar">
         <SheetHeader>
           <SheetTitle>Edit Shift – {new Date(shift.date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</SheetTitle>
           <SheetDescription>Update shift details</SheetDescription>
