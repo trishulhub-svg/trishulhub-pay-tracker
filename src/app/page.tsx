@@ -363,7 +363,6 @@ function ScrollColumn({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const isScrolling = useRef(false);
-  const isActive = useRef(false); // tracks if this picker is being actively touched
   const scrollTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Scroll to selected item on mount or when selectedIndex changes externally
@@ -375,7 +374,7 @@ function ScrollColumn({
   }, [selectedIndex]);
 
   const handleScroll = useCallback(() => {
-    if (!ref.current || !isActive.current) return;
+    if (!ref.current) return;
     isScrolling.current = true;
 
     if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
@@ -400,16 +399,6 @@ function ScrollColumn({
       }, 150);
     }, 80);
   }, [items.length, selectedIndex, onSelect]);
-
-  // Touch handlers: only process scroll events when the user is actively touching this picker
-  const handleTouchStart = useCallback(() => {
-    isActive.current = true;
-  }, []);
-
-  const handleTouchEnd = useCallback(() => {
-    // Keep active briefly to let scroll momentum settle
-    setTimeout(() => { isActive.current = false; }, 300);
-  }, []);
 
   // Padding items for centering
   const paddingCount = Math.floor(VISIBLE_ITEMS / 2);
@@ -442,13 +431,11 @@ function ScrollColumn({
       <div
         ref={ref}
         onScroll={handleScroll}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
         className="h-full overflow-y-auto custom-scrollbar"
         style={{
           scrollSnapType: 'y mandatory',
-          touchAction: 'none', // Prevent browser from interpreting touches as page scroll
           WebkitOverflowScrolling: 'touch',
+          overscrollBehavior: 'contain', // Prevent scroll from propagating to parent
         }}
       >
         {/* Top padding */}
@@ -3502,7 +3489,7 @@ function ShiftDaySheet({
 
   return (
     <Sheet open={open} onOpenChange={(v) => { if (!v) { onClose(); resetForm(); } }}>
-      <SheetContent side="bottom" className="max-h-[90vh] overflow-y-auto">
+      <SheetContent side="bottom" className="max-h-[90vh] overflow-y-auto custom-scrollbar">
         <SheetHeader>
           <SheetTitle>Add Shift – {date.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</SheetTitle>
           <SheetDescription>Add a new shift for this day</SheetDescription>
@@ -3678,7 +3665,7 @@ function ShiftEditSheet({
 
   return (
     <Sheet open={!!shift} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <SheetContent side="bottom" className="max-h-[90vh] overflow-y-auto">
+      <SheetContent side="bottom" className="max-h-[90vh] overflow-y-auto custom-scrollbar">
         <SheetHeader>
           <SheetTitle>Edit Shift – {new Date(shift.date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</SheetTitle>
           <SheetDescription>Update shift details</SheetDescription>
