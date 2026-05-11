@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { hashPassword } from '@/lib/auth';
+import { verifyPassword } from '@/lib/auth';
 import { createSessionToken } from '@/lib/session';
 
 // Simple in-memory rate limiter for login attempts
@@ -54,11 +54,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
-    // Verify password
-    const computedHash = await hashPassword(password);
-    const storedHash = user.password;
+    // Verify password using timing-safe comparison with stored salt
+    const isValid = await verifyPassword(password, user.password as string);
 
-    if (computedHash !== storedHash) {
+    if (!isValid) {
       recordLoginAttempt(normalizedEmail);
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
