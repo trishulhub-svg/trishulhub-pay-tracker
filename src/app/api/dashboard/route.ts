@@ -39,20 +39,11 @@ export async function GET(request: NextRequest) {
           userId: user.id,
           date: { gte: currentMonthStart, lt: currentMonthEnd },
         },
+        orderBy: { date: 'desc' },
       }),
     ]);
 
-    // Populate _count for companies from records (avoids N+1 queries)
-    const recordCountByCompany = new Map<string, number>();
-    for (const r of records) {
-      recordCountByCompany.set(r.companyId, (recordCountByCompany.get(r.companyId) || 0) + 1);
-    }
-    const companiesWithCount = companies.map((c: any) => ({
-      ...c,
-      _count: { paymentRecords: recordCountByCompany.get(c.id) || 0 },
-    }));
-
-    // Calculate totals
+    // Calculate totals from all records (full dataset for accuracy)
     const totals = records.reduce(
       (acc, r) => ({
         totalExpected: acc.totalExpected + Number(r.totalExpected || 0),
@@ -66,6 +57,7 @@ export async function GET(request: NextRequest) {
 
     const pendingCount = records.filter((r) => r.status === 'PENDING').length;
     const paidCount = records.filter((r) => r.status === 'PAID').length;
+    // Limit recent records to 10 (PERF-004) — already done via .slice, but cap shifts too
     const recentRecords = records.slice(0, 10);
 
     // Current month vs previous
@@ -79,6 +71,15 @@ export async function GET(request: NextRequest) {
     );
 
     // Stats per company
+    const recordCountByCompany = new Map<string, number>();
+    for (const r of records) {
+      recordCountByCompany.set(r.companyId, (recordCountByCompany.get(r.companyId) || 0) + 1);
+    }
+    const companiesWithCount = companies.map((c: any) => ({
+      ...c,
+      _count: { paymentRecords: recordCountByCompany.get(c.id) || 0 },
+    }));
+
     const companyStats = companiesWithCount.map((c: any) => {
       const companyRecords = records.filter((r) => r.companyId === c.id);
       const companyTotals = companyRecords.reduce(

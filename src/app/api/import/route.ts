@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'File size must be less than 5MB' }, { status: 400 });
     }
 
-    // Validate file type
+    // Validate file type (SEC-006: extension + magic byte validation)
     const fileName = file.name.toLowerCase();
     const isCSV = fileName.endsWith('.csv');
     const isPDF = fileName.endsWith('.pdf');
@@ -42,6 +42,19 @@ export async function POST(request: NextRequest) {
     if (!isCSV && !isPDF && !isDOCX) {
       return NextResponse.json({ error: 'Unsupported file format. Please upload CSV, PDF, or DOCX files.' }, { status: 400 });
     }
+
+    // Validate magic bytes to prevent disguised file uploads
+    const arrayBuffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer.slice(0, 8));
+    const header = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+
+    if (isPDF && !header.startsWith('25504446')) { // %PDF
+      return NextResponse.json({ error: 'Invalid PDF file. The file does not appear to be a valid PDF.' }, { status: 400 });
+    }
+    if (isDOCX && !header.startsWith('504b0304')) { // PK.. (ZIP-based)
+      return NextResponse.json({ error: 'Invalid DOCX file. The file does not appear to be a valid DOCX.' }, { status: 400 });
+    }
+    // CSV: just check it's text-like (no specific magic bytes)
 
     // Get user's companies for matching
     const companies = await db.company.findMany({
@@ -352,12 +365,18 @@ Return JSON in this exact format:
 {"shifts": [...], "payments": [...]}`;
 
   try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
+    // PERF-008: Add 30-second timeout to AI API calls
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
+
+    let response: Response;
+    try {
+      response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
       body: JSON.stringify({
         model,
         messages: [
@@ -366,7 +385,16 @@ Return JSON in this exact format:
         temperature: 0.1,
         max_tokens: 4096,
       }),
+      signal: controller.signal,
     });
+    } catch (fetchErr: any) {
+      clearTimeout(timeoutId);
+      if (fetchErr.name === 'AbortError') {
+        return { shifts: [], payments: [], warnings: ['AI extraction timed out after 30 seconds. Please try again.'] };
+      }
+      throw fetchErr;
+    }
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       const errText = await response.text();

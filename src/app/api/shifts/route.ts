@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
     const companyId = searchParams.get('companyId');
     const month = searchParams.get('month');
     const year = searchParams.get('year');
+    const limitParam = searchParams.get('limit');
 
     const where: Record<string, unknown> = { userId: user.id };
     if (companyId) where.companyId = companyId;
@@ -28,13 +29,16 @@ export async function GET(request: NextRequest) {
       where.date = { gte: startDate, lt: endDate };
     }
 
+    // PERF-010: Support limit parameter for pagination (default: 200, max: 500)
+    const queryLimit = limitParam ? Math.min(parseInt(limitParam) || 200, 500) : 200;
+
     const shifts = await db.shift.findMany({
       where,
-      include: {
-        company: { select: { id: true, name: true } },
-      },
       orderBy: { date: 'desc' },
     });
+
+    // Apply limit after fetch (totals need full dataset for accurate aggregation)
+    const limitedShifts = shifts.slice(0, queryLimit);
 
     // Calculate totals
     const totals = shifts.reduce(
@@ -46,7 +50,7 @@ export async function GET(request: NextRequest) {
       { totalHours: 0, totalBreakMinutes: 0, totalShifts: 0 }
     );
 
-    return NextResponse.json({ shifts, totals });
+    return NextResponse.json({ shifts: limitedShifts, totals, hasMore: shifts.length > queryLimit });
   } catch (error) {
     console.error('Shifts list error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -67,6 +71,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Company, date, start time, and end time are required' }, { status: 400 });
     }
 
+    // CODE-004: Validate time format (HH:MM)
+    const timeRegex = /^([01]?\d|2[0-3]):([0-5]\d)$/;
+    if (!timeRegex.test(startTime)) {
+      return NextResponse.json({ error: 'Start time must be in HH:MM format (e.g., 09:00)' }, { status: 400 });
+    }
+    if (!timeRegex.test(endTime)) {
+      return NextResponse.json({ error: 'End time must be in HH:MM format (e.g., 17:00)' }, { status: 400 });
+    }
+
+    // Validate date format (YYYY-MM-DD)
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(date)) {
+      return NextResponse.json({ error: 'Date must be in YYYY-MM-DD format' }, { status: 400 });
+    }
+
     // Verify company belongs to user
     const company = await db.company.findUnique({ where: { id: companyId } });
     if (!company || company.userId !== user.id) {
@@ -79,16 +98,15 @@ export async function POST(request: NextRequest) {
       // User explicitly provided a custom rate for this shift
       shiftPayRate = parseFloat(payRate) || 0;
     } else {
-      // Check pay rate history for the most recent effective rate on or before this shift date
+      // PERF-009: Only fetch rates effective on/before shift date (not ALL history)
       try {
         const rateHistory = await db.payRateHistory.findMany({
-          where: { companyId },
+          where: { companyId, effectiveFrom: { lte: date } },
           orderBy: { effectiveFrom: 'desc' },
         });
-        // Find the most recent rate that's effective on or before this shift date
-        const effectiveRate = rateHistory.find((r: any) => r.effectiveFrom <= date);
-        if (effectiveRate) {
-          shiftPayRate = effectiveRate.payRate;
+        // First result is the most recent effective rate
+        if (rateHistory.length > 0) {
+          shiftPayRate = rateHistory[0].payRate;
         }
       } catch {
         // If pay rate history lookup fails, fall back to company rate

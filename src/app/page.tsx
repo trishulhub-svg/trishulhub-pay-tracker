@@ -569,7 +569,7 @@ function ScrollTimePicker({
 // ============================================================
 export default function TrishulHubPayTracker() {
   const {
-    authView, setAuthView, user, setUser, isLoading, setIsLoading,
+    authView, setAuthView, user, setUser,
     currentView, setCurrentView, sidebarOpen, setSidebarOpen,
     selectedRecordId, setSelectedRecordId,
     selectedCompanyId, setSelectedCompanyId,

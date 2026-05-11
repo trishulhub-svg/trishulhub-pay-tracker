@@ -75,13 +75,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid verification code. Please try again.' }, { status: 400 });
     }
 
-    // Check if email already registered
-    const existing = await db.user.findUnique({ where: { email: normalizedEmail } });
+    // Run independent checks in parallel: existing user + hash password + referral lookup
+    const [existing, hashedPassword, referrer] = await Promise.all([
+      db.user.findUnique({ where: { email: normalizedEmail } }),
+      hashPassword(password),
+      referralCode ? db.user.findUnique({ where: { referralCode } }).catch(() => null) : Promise.resolve(null),
+    ]);
+
     if (existing) {
       return NextResponse.json({ error: 'This email is already registered. Please sign in instead.' }, { status: 409 });
     }
-
-    const hashedPassword = await hashPassword(password);
 
     // Generate unique referral code
     let newReferralCode = generateReferralCode();
@@ -91,18 +94,14 @@ export async function POST(request: NextRequest) {
       codeExists = await db.user.findUnique({ where: { referralCode: newReferralCode } });
     }
 
-    // Check referral code if provided - ONLY the REFERRER gets premium
+    // Mark referrer as premium if valid
     let referredBy: string | null = null;
-    if (referralCode) {
-      const referrer = await db.user.findUnique({ where: { referralCode } });
-      if (referrer) {
-        referredBy = referralCode;
-        // Mark the REFERRER as premium - they referred someone
-        await db.user.update({
-          where: { id: referrer.id },
-          data: { isPremium: true },
-        });
-      }
+    if (referrer) {
+      referredBy = referralCode;
+      await db.user.update({
+        where: { id: referrer.id },
+        data: { isPremium: true },
+      });
     }
 
     // Create user with email verified
