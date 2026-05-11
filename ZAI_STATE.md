@@ -1,55 +1,50 @@
 # ZAI STATE LOG
 **Project:** TrishulHub Pay Tracker (pay.trishulhub.com)
 **Status:** IN_PROGRESS
-**Last Stage:** Stage 3: HEY ZAI — All reported batches completed, UI fixes done
-**Last Action:** Fixed main page scrollbar visibility, hours format (Xh XXm), time picker scroll containment
-**Next Step:** User to test and report new issues, or proceed to Batch 3 (Shift system redesign - Prodihours-style UI)
-**Pending Batches:**
-  - Batch 3 (LOW): Shift system redesign — Prodihours-style UI (not started, user hasn't confirmed)
+**Last Stage:** Stage 1: TOTAL ZAI — Full audit complete, bug list produced
+**Last Action:** Deep audit of ALL pages — 17 bugs found (3 CRITICAL, 7 HIGH, 6 MEDIUM, 4 LOW)
+**Next Step:** Stage 2: DO IT ZAI — Organize batches from audit findings
+**Pending Batches:** TBD (planning stage next)
 **Active Bug List:**
-  - None currently open — all reported bugs fixed
+
+### CRITICAL (3)
+- SEC-001: Unsalted SHA-256 password hashing — use bcrypt
+- SEC-002: Default SESSION_SECRET in production
+- SEC-003: Session payload readable via base64 decode
+
+### HIGH — Performance (7)
+- PERF-001: No AbortController timeout on apiFetch
+- PERF-002: Hydration gate blocks entire UI on /api/auth/session
+- PERF-003: Signup = 3 sequential API calls with spinner
+- PERF-004: Dashboard loads ALL records (no pagination)
+- PERF-005: Dashboard: 4 sequential DB queries (should be Promise.all)
+- PERF-006: No Turso connection pooling (new client every request)
+- PERF-007: N+1 company count queries (should use GROUP BY)
+
+### MEDIUM — Security + Performance (6)
+- SEC-004: No timing-safe OTP comparison
+- SEC-005: No login rate limiting
+- SEC-006: No file magic-byte validation on import
+- PERF-008: No server-side timeout on AI API calls
+- PERF-009: Pay rate history loads ALL records
+- PERF-010: Shifts/records GET has no pagination
+
+### LOW (4)
+- CODE-001: Dead code (isLoading/setIsLoading unused)
+- CODE-002: as any type casts in import route
+- CODE-003: Auto-migration via ALTER TABLE in production
+- CODE-004: No input validation on time format in shifts
 
 ---
 
-## COMPLETED WORK
-
-### Session 1 (Previous GLM 5.1)
-- fix: z.ai API integration — correct endpoint, model IDs, Setting table auto-creation
-- feat: Import history + reverse/undo import + Confirm button moved to top
-- fix: z.ai API endpoints, blank PDF download, shift UX improvements & Prodihours-style redesign
-- fix: PDF rota shows no shifts — inclusive end date
-- feat: ProdiHours-style UI redesign, client field, PDF improvements
-- fix: auto-migrate client column in Turso DB + defensive handling
-- fix: resolve client-side crash on Shifts view
-- fix: Batch 1 — Fix z.ai import API, PDF download, and compact shift UI
-
-### Session 2 (Super Z — Batch 2 + TS fixes)
-- Verified all Batch 2 features already implemented (payRate, auto-select company, break memory)
-- Resolved 13 TypeScript errors across 7 files
-- Installed jspdf + jspdf-autotable (missing Batch 1 deps)
-- Added 'import' to CurrentView union type
-- Fixed jspdf-autotable color tuple types, React 19 useRef, OTP deleteMany, admin route types
-- Clean build: 0 TS errors
-
-### Session 3 (Super Z — UI fixes)
-- Hours display: decimal (8.12h) → human-readable (8h 7m) everywhere in app
-- Time picker: added overscrollBehavior:contain to prevent scroll bleeding to parent
-- Main page: added always-visible scrollbar (overflow-y-scroll + custom-scrollbar)
-- Sheet forms: added always-visible thick scrollbar for form scrolling
-- Scrollbar CSS: upgraded to 8px with visible track, Firefox support, dark mode
-
----
+## PREVIOUSLY COMPLETED
+- Batch 1: z.ai import fix, PDF download fix, compact shift UI
+- Batch 2: payRate, auto-select company, break memory (already built)
+- UI fixes: Hours format (Xh XXm), scrollbar, time picker containment
+- 13 TypeScript errors resolved
+- All commits pushed to GitHub
 
 ## PROJECT INFO
 - **GitHub:** https://github.com/trishulhub-svg/trishulhub-pay-tracker.git
-- **Stack:** Next.js 16 App Router, Turso DB (libSQL), Tailwind CSS v4, Vercel
-- **Auth:** HMAC cookie + OTP email (Brevo SMTP)
-- **AI Import:** z.ai API (glm-4.5-flash) via api.z.ai
-- **PDF:** jspdf + jspdf-autotable for rota PDF generation
-- **Key Files:**
-  - `src/lib/db.ts` — Custom ORM (Prisma + Turso dual)
-  - `src/lib/store.ts` — Zustand state (CurrentView, session)
-  - `src/lib/email.ts` — Settings cache + email sending
-  - `src/lib/auth.ts` — HMAC auth + OTP
-  - `src/app/page.tsx` — Monolithic frontend (~5500+ lines)
-  - `src/app/globals.css` — Theme + scrollbar styles
+- **Stack:** Next.js 16, Turso DB (libSQL), Tailwind CSS v4, Vercel
+- **Key Files:** lib/db.ts, lib/session.ts, lib/auth.ts, lib/email.ts, lib/store.ts, src/app/page.tsx, src/app/globals.css
