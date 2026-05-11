@@ -3,6 +3,16 @@ import { db } from '@/lib/db';
 import { hashPassword } from '@/lib/auth';
 import { createSessionToken } from '@/lib/session';
 import { isDisposableEmail, isLikelyValidEmailDomain } from '@/lib/email-validation';
+import { timingSafeEqual } from 'crypto';
+
+function safeCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  } catch {
+    return false;
+  }
+}
 
 function generateReferralCode(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -61,7 +71,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Please verify your email address first. Enter the verification code sent to your email.' }, { status: 400 });
     }
 
-    if (otpRecord.code !== otpCode) {
+    if (!safeCompare(otpRecord.code, otpCode)) {
       return NextResponse.json({ error: 'Invalid verification code. Please try again.' }, { status: 400 });
     }
 

@@ -1,5 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { timingSafeEqual } from 'crypto';
+
+// Timing-safe string comparison (prevents timing attacks on OTP codes)
+function safeCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  } catch {
+    return false;
+  }
+}
 
 // POST /api/auth/verify-otp - Verify OTP code (for signup or password reset)
 export async function POST(request: NextRequest) {
@@ -28,7 +39,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid or expired verification code. Please request a new one.' }, { status: 400 });
     }
 
-    if (otpRecord.code !== code) {
+    if (!safeCompare(otpRecord.code, code)) {
       // Brute-force protection: limit wrong verification attempts
       // We use a simple counter approach - after 5 wrong attempts on the same OTP, lock out
       // Count how many times this specific OTP record has been checked (it's still unverified)

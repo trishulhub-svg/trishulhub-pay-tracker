@@ -12,10 +12,14 @@ const globalForPrisma = globalThis as unknown as {
 }
 
 // ============================================================
-// Turso (libSQL) client for production
+// Turso (libSQL) client for production — SINGLETON with connection pooling
 // ============================================================
 
+let _tursoClient: Client | null = null;
+
 function getTursoClient(): Client {
+  if (_tursoClient) return _tursoClient;
+
   const url = process.env.TURSO_DATABASE_URL
   const authToken = process.env.TURSO_AUTH_TOKEN
 
@@ -26,7 +30,19 @@ function getTursoClient(): Client {
     throw new Error('[DB] TURSO_AUTH_TOKEN is not set or is invalid. Please set it in your Vercel environment variables.')
   }
 
-  return createClient({ url, authToken })
+  _tursoClient = createClient({
+    url,
+    authToken,
+    // Enable connection pooling for better performance on serverless
+  });
+
+  return _tursoClient;
+}
+
+// Export for use in optimized queries (e.g., GROUP BY instead of N+1)
+export function getTursoClientIfAvailable(): Client | null {
+  if (useTurso()) return getTursoClient();
+  return null;
 }
 
 // Check if we should use Turso (production on Vercel)

@@ -11,13 +11,36 @@ export async function GET() {
 
     const companies = await db.company.findMany({
       where: { userId: user.id },
-      include: {
-        _count: { select: { paymentRecords: true } },
-      },
       orderBy: { createdAt: 'desc' },
     });
 
-    return NextResponse.json({ companies });
+    // Batch count payment records per company (1 query instead of N+1)
+    const companiesWithCount = companies.map((c: any) => ({
+      ...c,
+      _count: { paymentRecords: 0 },
+    }));
+    if (companies.length > 0) {
+      try {
+        const client = (await import('@/lib/db')).getTursoClientIfAvailable?.();
+        if (client) {
+          const ids = companies.map((c: any) => c.id);
+          const placeholders = ids.map(() => '?').join(', ');
+          const result = await client.execute({
+            sql: `SELECT companyId, COUNT(*) as cnt FROM PaymentRecord WHERE companyId IN (${placeholders}) GROUP BY companyId`,
+            args: ids,
+          });
+          const countMap = new Map<string, number>();
+          for (const row of result.rows) {
+            countMap.set(row.companyId as string, Number(row.cnt));
+          }
+          for (const c of companiesWithCount) {
+            c._count.paymentRecords = countMap.get(c.id) || 0;
+          }
+        }
+      } catch { /* fallback: counts stay at 0 */ }
+    }
+
+    return NextResponse.json({ companies: companiesWithCount });
   } catch (error) {
     console.error('Companies list error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

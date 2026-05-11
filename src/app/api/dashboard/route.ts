@@ -12,23 +12,45 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const companyId = searchParams.get('companyId');
 
-    // Get user's companies with payment record counts
-    const companies = await db.company.findMany({
-      where: { userId: user.id },
-      include: {
-        _count: { select: { paymentRecords: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    // Current month boundaries (needed for multiple queries)
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1;
+    const currentYear = now.getFullYear();
+    const currentMonthStart = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
+    const nextMonth = currentMonth === 12 ? 1 : currentMonth + 1;
+    const nextMonthYear = currentMonth === 12 ? currentYear + 1 : currentYear;
+    const currentMonthEnd = `${nextMonthYear}-${String(nextMonth).padStart(2, '0')}-01`;
 
-    // Get records for selected company or all
-    const where: Record<string, unknown> = { userId: user.id };
-    if (companyId) where.companyId = companyId;
+    // Run all independent queries in parallel (was 4 sequential awaits)
+    const [companies, records, referralCount, currentMonthShifts] = await Promise.all([
+      db.company.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: 'desc' },
+      }),
+      db.paymentRecord.findMany({
+        where: companyId ? { userId: user.id, companyId } : { userId: user.id },
+        orderBy: [{ year: 'desc' }, { month: 'desc' }],
+      }),
+      db.user.count({
+        where: { referredBy: user.referralCode },
+      }),
+      db.shift.findMany({
+        where: {
+          userId: user.id,
+          date: { gte: currentMonthStart, lt: currentMonthEnd },
+        },
+      }),
+    ]);
 
-    const records = await db.paymentRecord.findMany({
-      where,
-      orderBy: [{ year: 'desc' }, { month: 'desc' }],
-    });
+    // Populate _count for companies from records (avoids N+1 queries)
+    const recordCountByCompany = new Map<string, number>();
+    for (const r of records) {
+      recordCountByCompany.set(r.companyId, (recordCountByCompany.get(r.companyId) || 0) + 1);
+    }
+    const companiesWithCount = companies.map((c: any) => ({
+      ...c,
+      _count: { paymentRecords: recordCountByCompany.get(c.id) || 0 },
+    }));
 
     // Calculate totals
     const totals = records.reduce(
@@ -47,9 +69,6 @@ export async function GET(request: NextRequest) {
     const recentRecords = records.slice(0, 10);
 
     // Current month vs previous
-    const now = new Date();
-    const currentMonth = now.getMonth() + 1;
-    const currentYear = now.getFullYear();
     const currentMonthRecord = records.find(
       (r) => Number(r.month) === currentMonth && Number(r.year) === currentYear
     );
@@ -59,35 +78,8 @@ export async function GET(request: NextRequest) {
       (r) => Number(r.month) === prevMonth && Number(r.year) === prevYear
     );
 
-    // Get referral info
-    const referralCount = await db.user.count({
-      where: { referredBy: user.referralCode },
-    });
-
-    // Get shift summary for current month
-    const currentMonthStart = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
-    const nextMonth = currentMonth === 12 ? 1 : currentMonth + 1;
-    const nextMonthYear = currentMonth === 12 ? currentYear + 1 : currentYear;
-    const currentMonthEnd = `${nextMonthYear}-${String(nextMonth).padStart(2, '0')}-01`;
-
-    const currentMonthShifts = await db.shift.findMany({
-      where: {
-        userId: user.id,
-        date: { gte: currentMonthStart, lt: currentMonthEnd },
-      },
-    });
-
-    const shiftSummary = currentMonthShifts.reduce(
-      (acc, s) => ({
-        totalHours: acc.totalHours + Number(s.totalHours || 0),
-        totalShifts: acc.totalShifts + 1,
-        totalBreakMinutes: acc.totalBreakMinutes + Number(s.breakMinutes || 0),
-      }),
-      { totalHours: 0, totalShifts: 0, totalBreakMinutes: 0 }
-    );
-
     // Stats per company
-    const companyStats = companies.map((c: any) => {
+    const companyStats = companiesWithCount.map((c: any) => {
       const companyRecords = records.filter((r) => r.companyId === c.id);
       const companyTotals = companyRecords.reduce(
         (acc, r) => ({
@@ -115,7 +107,7 @@ export async function GET(request: NextRequest) {
         paidCount,
         ...totals,
       },
-      companies,
+      companies: companiesWithCount,
       companyStats,
       recentRecords,
       comparison: {
@@ -128,7 +120,9 @@ export async function GET(request: NextRequest) {
         isPremium: user.isPremium,
       },
       shiftSummary: {
-        ...shiftSummary,
+        totalHours: currentMonthShifts.reduce((acc, s) => acc + Number(s.totalHours || 0), 0),
+        totalShifts: currentMonthShifts.length,
+        totalBreakMinutes: currentMonthShifts.reduce((acc, s) => acc + Number(s.breakMinutes || 0), 0),
         month: currentMonth,
         year: currentYear,
       },

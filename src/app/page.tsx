@@ -316,16 +316,31 @@ function formatTime12h(time24: string): string {
 // ============================================================
 // API HELPER
 // ============================================================
+const FETCH_TIMEOUT = 15_000; // 15 seconds
+
 async function apiFetch(url: string, options?: RequestInit) {
-  const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    ...options,
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || 'Something went wrong');
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+
+  try {
+    const res = await fetch(url, {
+      headers: { 'Content-Type': 'application/json', ...options?.headers },
+      ...options,
+      signal: controller.signal,
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Something went wrong');
+    }
+    return data;
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error('Request timed out. Please check your connection and try again.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
   }
-  return data;
 }
 
 // ============================================================
@@ -576,9 +591,21 @@ export default function TrishulHubPayTracker() {
   // Initialize on mount: check URL params and session
   useEffect(() => {
     const ref = referralParam;
+
+    // Fast path: if no session cookie exists, skip server call — show login immediately
+    const hasSessionCookie = document.cookie.split(';').some(c => c.trim().startsWith('session='));
+    if (!hasSessionCookie) {
+      setUser(null);
+      setHydrated(true);
+      if (ref) setAuthView('signup');
+      return;
+    }
+
+    // Session cookie exists — validate it with the server
     apiFetch('/api/auth/session')
       .then((data) => {
         if (data.user) setUser(data.user);
+        else setUser(null);
       })
       .catch(() => setUser(null))
       .finally(() => {
