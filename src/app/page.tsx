@@ -521,42 +521,87 @@ function ScrollTimePicker({
   onChange: (v: string) => void;
   label?: string;
 }) {
-  const [hours, minutes] = value.split(':').map(Number);
+  const [editing, setEditing] = useState(false);
+  const [pendingValue, setPendingValue] = useState(value);
 
   const hourOptions = Array.from({ length: 24 }, (_, i) => i);
   const minuteOptions = Array.from({ length: 60 }, (_, i) => i);
 
+  // Sync pending value when external value changes (e.g. form reset)
+  useEffect(() => {
+    if (!editing) setPendingValue(value);
+  }, [value, editing]);
+
   const handleHourChange = useCallback(
     (index: number) => {
+      const [_, minutes] = pendingValue.split(':').map(Number);
       const newHour = hourOptions[index];
-      onChange(`${String(newHour).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`);
+      setPendingValue(`${String(newHour).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`);
     },
-    [hourOptions, minutes, onChange]
+    [hourOptions, pendingValue]
   );
 
   const handleMinuteChange = useCallback(
     (index: number) => {
+      const [hours, _] = pendingValue.split(':').map(Number);
       const newMinute = minuteOptions[index];
-      onChange(`${String(hours).padStart(2, '0')}:${String(newMinute).padStart(2, '0')}`);
+      setPendingValue(`${String(hours).padStart(2, '0')}:${String(newMinute).padStart(2, '0')}`);
     },
-    [minuteOptions, hours, onChange]
+    [minuteOptions, pendingValue]
   );
 
+  const [pHours, pMinutes] = pendingValue.split(':').map(Number);
+
+  const handleSave = () => {
+    onChange(pendingValue);
+    setEditing(false);
+  };
+
+  const handleEdit = () => {
+    setPendingValue(value);
+    setEditing(true);
+  };
+
+  // LOCKED DISPLAY — shows saved time with edit button (no scroll)
+  if (!editing) {
+    return (
+      <div className="space-y-1">
+        {label && <Label className="text-xs text-muted-foreground">{label}</Label>}
+        <button
+          type="button"
+          onClick={handleEdit}
+          className="w-full h-14 flex items-center justify-between px-4 rounded-xl border border-border bg-card hover:bg-accent/50 active:scale-[0.98] transition-all cursor-pointer"
+        >
+          <div className="flex items-center gap-3">
+            <Clock className="h-5 w-5 text-primary" />
+            <span className="text-xl font-bold tracking-wide tabular-nums">{value}</span>
+            <span className="text-sm text-muted-foreground font-medium">{formatTime12h(value)}</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-muted-foreground">
+            <span className="text-xs">Edit</span>
+            <Edit3 className="h-4 w-4" />
+          </div>
+        </button>
+      </div>
+    );
+  }
+
+  // EDITING MODE — scrollable time picker with save button
   return (
     <div className="space-y-1">
       {label && <Label className="text-xs text-muted-foreground">{label}</Label>}
-      <div className="relative rounded-xl border border-border bg-card overflow-hidden time-picker-scroll">
+      <div className="relative rounded-xl border-2 border-primary/40 bg-card overflow-hidden time-picker-scroll ring-2 ring-primary/10">
         {/* AM/PM display */}
         <div className="absolute top-2 left-0 right-0 z-20 pointer-events-none text-center">
           <span className="text-[10px] font-semibold text-primary/70 bg-primary/5 px-2 py-0.5 rounded-full">
-            {hours >= 12 ? 'PM' : 'AM'}
+            {pHours >= 12 ? 'PM' : 'AM'}
           </span>
         </div>
         <div className="flex items-center">
           <div className="flex-1">
             <ScrollColumn
               items={hourOptions}
-              selectedIndex={hours}
+              selectedIndex={pHours}
               onSelect={handleHourChange}
             />
           </div>
@@ -566,16 +611,25 @@ function ScrollTimePicker({
           <div className="flex-1">
             <ScrollColumn
               items={minuteOptions}
-              selectedIndex={minutes}
+              selectedIndex={pMinutes}
               onSelect={handleMinuteChange}
             />
           </div>
         </div>
-        {/* Current value display */}
-        <div className="px-3 pb-2 pt-1 text-center border-t border-border/50">
+        {/* Current value + Save button */}
+        <div className="px-3 pb-2 pt-1 text-center border-t border-border/50 flex items-center justify-between gap-2">
           <span className="text-xs text-muted-foreground">
-            {formatTime12h(value)} ({value})
+            {formatTime12h(pendingValue)} ({pendingValue})
           </span>
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleSave}
+            className="h-8 px-4 bg-gradient-to-r from-blue-600 to-green-600 text-white text-xs font-semibold hover:opacity-90 active:scale-95 transition-all"
+          >
+            <Check className="h-3.5 w-3.5 mr-1" />
+            Save
+          </Button>
         </div>
       </div>
     </div>
