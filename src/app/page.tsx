@@ -358,6 +358,11 @@ const fadeIn = {
   exit: { opacity: 0 },
 };
 
+// Blur number inputs on wheel scroll to prevent accidental value changes
+function handleNumberInputWheel(e: React.WheelEvent<HTMLInputElement>) {
+  (e.target as HTMLInputElement).blur();
+}
+
 // ============================================================
 // SCROLL TIME PICKER COMPONENT
 // ============================================================
@@ -446,11 +451,24 @@ function ScrollColumn({
       <div
         ref={ref}
         onScroll={handleScroll}
+        onWheel={(e) => {
+          // Always contain scroll within the time picker — never let it leak to parent
+          // This prevents page scroll from accidentally changing the time
+          if (ref.current) {
+            const { scrollTop, scrollHeight, clientHeight } = ref.current;
+            const atTop = scrollTop <= 0 && e.deltaY < 0;
+            const atBottom = scrollTop + clientHeight >= scrollHeight && e.deltaY > 0;
+            if (atTop || atBottom) {
+              e.preventDefault();
+              e.stopPropagation();
+            }
+          }
+        }}
         className="h-full overflow-y-auto custom-scrollbar"
         style={{
           scrollSnapType: 'y mandatory',
           WebkitOverflowScrolling: 'touch',
-          overscrollBehavior: 'contain', // Prevent scroll from propagating to parent
+          overscrollBehavior: 'contain',
         }}
       >
         {/* Top padding */}
@@ -527,7 +545,7 @@ function ScrollTimePicker({
   return (
     <div className="space-y-1">
       {label && <Label className="text-xs text-muted-foreground">{label}</Label>}
-      <div className="relative rounded-xl border border-border bg-card overflow-hidden">
+      <div className="relative rounded-xl border border-border bg-card overflow-hidden time-picker-scroll">
         {/* AM/PM display */}
         <div className="absolute top-2 left-0 right-0 z-20 pointer-events-none text-center">
           <span className="text-[10px] font-semibold text-primary/70 bg-primary/5 px-2 py-0.5 rounded-full">
@@ -2172,14 +2190,14 @@ function RecordFormView({ isEdit = false }: { isEdit?: boolean }) {
                 <Label>Total Expected (£)</Label>
                 <div className="relative">
                   <PoundSterling className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input type="number" step="0.01" placeholder="0.00" value={totalExpected} onChange={(e) => setTotalExpected(e.target.value)} className="pl-10 h-12" />
+                  <Input type="number" step="0.01" placeholder="0.00" value={totalExpected} onChange={(e) => setTotalExpected(e.target.value)} className="pl-10 h-12" onWheel={handleNumberInputWheel} />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label>Total Received (£)</Label>
                 <div className="relative">
                   <PoundSterling className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input type="number" step="0.01" placeholder="0.00" value={totalReceived} onChange={(e) => setTotalReceived(e.target.value)} className="pl-10 h-12" />
+                  <Input type="number" step="0.01" placeholder="0.00" value={totalReceived} onChange={(e) => setTotalReceived(e.target.value)} className="pl-10 h-12" onWheel={handleNumberInputWheel} />
                 </div>
               </div>
             </div>
@@ -2189,14 +2207,14 @@ function RecordFormView({ isEdit = false }: { isEdit?: boolean }) {
                 <Label>HMRC Deductions (£)</Label>
                 <div className="relative">
                   <PoundSterling className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input type="number" step="0.01" placeholder="0.00" value={totalHMRC} onChange={(e) => setTotalHMRC(e.target.value)} className="pl-10 h-12" />
+                  <Input type="number" step="0.01" placeholder="0.00" value={totalHMRC} onChange={(e) => setTotalHMRC(e.target.value)} className="pl-10 h-12" onWheel={handleNumberInputWheel} />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label>Worked Hours</Label>
                 <div className="relative">
                   <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input type="number" step="0.5" placeholder="0" value={workedHours} onChange={(e) => setWorkedHours(e.target.value)} className="pl-10 h-12" />
+                  <Input type="number" step="0.5" placeholder="0" value={workedHours} onChange={(e) => setWorkedHours(e.target.value)} className="pl-10 h-12" onWheel={handleNumberInputWheel} />
                 </div>
               </div>
             </div>
@@ -2450,7 +2468,7 @@ function CompaniesView() {
               <Label>New Hourly Pay Rate (GBP)</Label>
               <div className="relative">
                 <PoundSterling className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input type="number" step="0.01" min="0" value={newPayRate} onChange={(e) => setNewPayRate(e.target.value)} className="pl-10 h-12" placeholder="e.g. 12.50" />
+                <Input type="number" step="0.01" min="0" value={newPayRate} onChange={(e) => setNewPayRate(e.target.value)} className="pl-10 h-12" placeholder="e.g. 12.50" onWheel={handleNumberInputWheel} />
               </div>
             </div>
             <div className="space-y-3">
@@ -2594,6 +2612,7 @@ function CompanyFormView() {
                   value={payRate}
                   onChange={(e) => setPayRate(e.target.value)}
                   className="pl-10 h-12"
+                  onWheel={handleNumberInputWheel}
                 />
               </div>
               <p className="text-xs text-muted-foreground">Default hourly rate for this company. You can override per shift.</p>
@@ -3362,7 +3381,7 @@ function ShiftsView({ user }: { user: SessionUser }) {
                       {MONTHS.map((m, i) => <SelectItem key={i} value={(i + 1).toString()}>{m}</SelectItem>)}
                     </SelectContent>
                   </Select>
-                  <Input type="number" value={rotaYear} onChange={(e) => setRotaYear(parseInt(e.target.value))} className="h-10" />
+                  <Input type="number" value={rotaYear} onChange={(e) => setRotaYear(parseInt(e.target.value))} className="h-10" onWheel={handleNumberInputWheel} />
                 </div>
               </div>
             ) : (
@@ -3541,7 +3560,7 @@ function ShiftDaySheet({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label>Break (minutes)</Label>
-              <Input type="number" value={breakMinutes} onChange={(e) => setBreakMinutes(e.target.value)} className="h-12" />
+              <Input type="number" value={breakMinutes} onChange={(e) => setBreakMinutes(e.target.value)} className="h-12" onWheel={handleNumberInputWheel} />
             </div>
             <div className="space-y-2">
               <Label>Total Hours</Label>
@@ -3573,7 +3592,7 @@ function ShiftDaySheet({
               {useCustomRate ? (
                 <div className="relative">
                   <PoundSterling className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input type="number" step="0.01" min="0" placeholder="Custom rate" value={payRate} onChange={(e) => setPayRate(e.target.value)} className="pl-10 h-10" />
+                  <Input type="number" step="0.01" min="0" placeholder="Custom rate" value={payRate} onChange={(e) => setPayRate(e.target.value)} className="pl-10 h-10" onWheel={handleNumberInputWheel} />
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
@@ -3717,7 +3736,7 @@ function ShiftEditSheet({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label>Break (minutes)</Label>
-              <Input type="number" value={breakMinutes} onChange={(e) => setBreakMinutes(e.target.value)} className="h-12" />
+              <Input type="number" value={breakMinutes} onChange={(e) => setBreakMinutes(e.target.value)} className="h-12" onWheel={handleNumberInputWheel} />
             </div>
             <div className="space-y-2">
               <Label>Total Hours</Label>
@@ -3749,7 +3768,7 @@ function ShiftEditSheet({
               {useCustomRate ? (
                 <div className="relative">
                   <PoundSterling className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input type="number" step="0.01" min="0" placeholder="Custom rate" value={payRate} onChange={(e) => setPayRate(e.target.value)} className="pl-10 h-10" />
+                  <Input type="number" step="0.01" min="0" placeholder="Custom rate" value={payRate} onChange={(e) => setPayRate(e.target.value)} className="pl-10 h-10" onWheel={handleNumberInputWheel} />
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
