@@ -488,6 +488,11 @@ export const company = {
     if (useTurso()) {
       const client = getTursoClient()
       const existing = await this.findUnique({ where: { id: args.where.id } })
+      // REC-008: Cascade delete — Turso/SQLite doesn't enforce foreign keys by default
+      // Delete associated records before deleting company to prevent orphaned data
+      await client.execute({ sql: 'DELETE FROM PayRateHistory WHERE companyId = ?', args: [args.where.id] })
+      await client.execute({ sql: 'DELETE FROM PaymentRecord WHERE companyId = ?', args: [args.where.id] })
+      await client.execute({ sql: 'DELETE FROM Shift WHERE companyId = ?', args: [args.where.id] })
       await client.execute({ sql: 'DELETE FROM Company WHERE id = ?', args: [args.where.id] })
       return existing
     }

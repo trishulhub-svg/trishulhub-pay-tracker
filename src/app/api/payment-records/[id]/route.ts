@@ -2,6 +2,31 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 
+// REC-003: Status allowlist
+const VALID_STATUSES = ['PENDING', 'PAID'] as const;
+
+// REC-001: Numeric field validation — reject negative amounts
+function validateNumericField(value: unknown, fieldName: string): string | null {
+  if (value === undefined || value === null) return null;
+  const num = Number(value);
+  if (isNaN(num)) return `${fieldName} must be a valid number`;
+  if (num < 0) return `${fieldName} cannot be negative`;
+  return null;
+}
+
+// REC-002: Month/year range validation
+function validateMonth(value: unknown): string | null {
+  const num = parseInt(String(value));
+  if (isNaN(num) || num < 1 || num > 12) return 'Month must be between 1 and 12';
+  return null;
+}
+
+function validateYear(value: unknown): string | null {
+  const num = parseInt(String(value));
+  if (isNaN(num) || num < 2000 || num > 2100) return 'Year must be between 2000 and 2100';
+  return null;
+}
+
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -22,6 +47,47 @@ export async function PUT(
 
     const body = await request.json();
     const { companyId, month, year, totalExpected, totalReceived, totalHMRC, workedHours, notes, status: inputStatus } = body;
+
+    // REC-002: Validate month/year if provided
+    if (month !== undefined) {
+      const err = validateMonth(month);
+      if (err) return NextResponse.json({ error: err }, { status: 400 });
+    }
+    if (year !== undefined) {
+      const err = validateYear(year);
+      if (err) return NextResponse.json({ error: err }, { status: 400 });
+    }
+
+    // REC-001: Validate numeric fields — reject negative amounts
+    const numericChecks = [
+      validateNumericField(totalExpected, 'Total expected'),
+      validateNumericField(totalReceived, 'Total received'),
+      validateNumericField(totalHMRC, 'Total HMRC'),
+      validateNumericField(workedHours, 'Worked hours'),
+    ];
+    const validationError = numericChecks.find(err => err !== null);
+    if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
+
+    // REC-003: Validate status value
+    if (inputStatus && !VALID_STATUSES.includes(inputStatus)) {
+      return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` }, { status: 400 });
+    }
+
+    // REC-007: Check for duplicate conflict if company/month/year is changing
+    if (companyId !== undefined || month !== undefined || year !== undefined) {
+      const newCompanyId = companyId !== undefined ? companyId : existing.companyId;
+      const newMonth = month !== undefined ? month : existing.month;
+      const newYear = year !== undefined ? year : existing.year;
+      const conflict = await db.paymentRecord.findUnique({
+        where: { userId_companyId_month_year: { userId: user.id, companyId: newCompanyId, month: newMonth, year: newYear } },
+      });
+      if (conflict && conflict.id !== id) {
+        return NextResponse.json(
+          { error: 'A payment record already exists for this company/month/year' },
+          { status: 409 }
+        );
+      }
+    }
 
     const updateData: Record<string, unknown> = {};
     if (companyId !== undefined) updateData.companyId = companyId;
