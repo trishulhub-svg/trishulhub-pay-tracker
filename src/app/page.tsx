@@ -2076,7 +2076,10 @@ function RecordsView() {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  useEffect(() => { fetchRecords(); fetchCompanies(); }, []);
+  useEffect(() => { fetchCompanies(); }, []);
+
+  // REC-014: Removed fetchRecords() from mount — the filter-dependent useEffect
+  // below already fires on mount with initial 'all'/'all' values, preventing double fetch
 
   const fetchCompanies = async () => {
     try {
@@ -2273,10 +2276,12 @@ function RecordFormView({ isEdit = false }: { isEdit?: boolean }) {
     } catch { /* ignore */ }
   };
 
+  // REC-013: Fetch single record via dedicated endpoint instead of loading all
   const fetchRecord = async () => {
+    if (!selectedRecordId) return;
     try {
-      const data = await apiFetch('/api/payment-records');
-      const record = data.records.find((r: PaymentRecord) => r.id === selectedRecordId);
+      const data = await apiFetch(`/api/payment-records/${selectedRecordId}`);
+      const record = data.record;
       if (record) {
         setCompanyId(record.companyId);
         setMonth(record.month);
@@ -2290,7 +2295,9 @@ function RecordFormView({ isEdit = false }: { isEdit?: boolean }) {
         setPaySlipUrl(record.paySlipUrl);
         setPaySlipName(record.paySlipName);
       }
-    } catch { /* ignore */ }
+    } catch {
+      toast.error('Failed to load record');
+    }
   };
 
   // Auto-populate worked hours from shifts

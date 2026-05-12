@@ -27,6 +27,39 @@ function validateYear(value: unknown): string | null {
   return null;
 }
 
+// REC-013: GET single record — used by edit form instead of loading all records
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = await getSession();
+    if (!user) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
+    const { id } = await params;
+
+    const record = await db.paymentRecord.findUnique({
+      where: { id },
+      include: {
+        company: {
+          select: { id: true, name: true },
+        },
+      },
+    });
+
+    if (!record || record.userId !== user.id) {
+      return NextResponse.json({ error: 'Payment record not found' }, { status: 404 });
+    }
+
+    return NextResponse.json({ record });
+  } catch (error) {
+    console.error('Get payment record error:', error);
+    return NextResponse.json({ error: 'Failed to fetch record' }, { status: 500 });
+  }
+}
+
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }

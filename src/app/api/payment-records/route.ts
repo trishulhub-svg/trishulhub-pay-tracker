@@ -39,6 +39,9 @@ export async function GET(request: NextRequest) {
     const month = searchParams.get('month');
     const year = searchParams.get('year');
     const status = searchParams.get('status');
+    // REC-011: Pagination support
+    const limitParam = searchParams.get('limit');
+    const limit = limitParam ? parseInt(limitParam) : undefined;
 
     const where: Record<string, unknown> = { userId: user.id };
 
@@ -61,7 +64,7 @@ export async function GET(request: NextRequest) {
       where.status = status;
     }
 
-    const records = await db.paymentRecord.findMany({
+    const queryOpts: any = {
       where,
       include: {
         company: {
@@ -69,7 +72,16 @@ export async function GET(request: NextRequest) {
         },
       },
       orderBy: [{ year: 'desc' }, { month: 'desc' }],
-    });
+    };
+    // REC-011: Apply limit if provided (max 500 safety cap)
+    if (limit && limit > 0) {
+      queryOpts.take = Math.min(limit, 500);
+    } else {
+      // Default safety cap — prevent unbounded loads
+      queryOpts.take = 500;
+    }
+
+    const records = await db.paymentRecord.findMany(queryOpts);
 
     // Calculate grand totals
     const totals = records.reduce(

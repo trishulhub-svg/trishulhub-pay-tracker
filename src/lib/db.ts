@@ -16,6 +16,7 @@ const globalForPrisma = globalThis as unknown as {
 // ============================================================
 
 let _tursoClient: Client | null = null;
+let _indexesCreated = false;
 
 function getTursoClient(): Client {
   if (_tursoClient) return _tursoClient;
@@ -27,7 +28,7 @@ function getTursoClient(): Client {
     throw new Error('[DB] TURSO_DATABASE_URL is not set or is invalid. Please set it in your Vercel environment variables.')
   }
   if (!authToken || authToken === 'undefined') {
-    throw new Error('[DB] TURSO_AUTH_TOKEN is not set or is invalid. Please set it in your Vercel environment variables.')
+    throw new Error('[DB] TURSO_AUTH_TOKEN is not set or invalid. Please set it in your Vercel environment variables.')
   }
 
   _tursoClient = createClient({
@@ -35,6 +36,15 @@ function getTursoClient(): Client {
     authToken,
     // Enable connection pooling for better performance on serverless
   });
+
+  // REC-012: Create performance indexes on first connection (idempotent — IF NOT EXISTS)
+  if (!_indexesCreated) {
+    _indexesCreated = true;
+    _tursoClient.execute({ sql: 'CREATE INDEX IF NOT EXISTS idx_pr_userId ON PaymentRecord(userId)', args: [] }).catch(() => {});
+    _tursoClient.execute({ sql: 'CREATE INDEX IF NOT EXISTS idx_pr_userId_status ON PaymentRecord(userId, status)', args: [] }).catch(() => {});
+    _tursoClient.execute({ sql: 'CREATE INDEX IF NOT EXISTS idx_shift_userId ON Shift(userId)', args: [] }).catch(() => {});
+    _tursoClient.execute({ sql: 'CREATE INDEX IF NOT EXISTS idx_company_userId ON Company(userId)', args: [] }).catch(() => {});
+  }
 
   return _tursoClient;
 }
