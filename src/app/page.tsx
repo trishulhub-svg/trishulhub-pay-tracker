@@ -332,6 +332,14 @@ async function apiFetch(url: string, options?: RequestInit) {
     });
     const data = await res.json();
     if (!res.ok) {
+      // Global 401 handler: expired/invalid session during any API call → force logout
+      if (res.status === 401 && !url.includes('/auth/login') && !url.includes('/auth/signup')) {
+        // Clear Zustand user state so login screen shows immediately
+        const { setUser } = await import('@/lib/store').then(m => m.useAppStore.getState());
+        setUser(null);
+        // Clear the httpOnly cookie server-side
+        fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+      }
       throw new Error(data.error || 'Something went wrong');
     }
     return data;
@@ -666,16 +674,9 @@ export default function TrishulHubPayTracker() {
   useEffect(() => {
     const ref = referralParam;
 
-    // Fast path: if no session cookie exists, skip server call — show login immediately
-    const hasSessionCookie = document.cookie.split(';').some(c => c.trim().startsWith('session='));
-    if (!hasSessionCookie) {
-      setUser(null);
-      setHydrated(true);
-      if (ref) setAuthView('signup');
-      return;
-    }
-
-    // Session cookie exists — validate it with the server
+    // NOTE: Session cookie is httpOnly, so document.cookie CANNOT see it.
+    // Always validate with the server — the fast-path cookie check was removed
+    // because httpOnly cookies are invisible to client-side JS by design.
     apiFetch('/api/auth/session')
       .then((data) => {
         if (data.user) setUser(data.user);
@@ -1669,8 +1670,20 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
     return ((current - previous) / Math.max(previous, 0.01)) * 100;
   };
 
-  if (isLoading || !data) {
+  // DASH-001: Separate loading from error — !data after load means API failure
+  if (isLoading) {
     return <LoadingSkeleton />;
+  }
+
+  if (!data) {
+    return (
+      <div className="p-4 md:p-6 md:ml-64 text-center py-12">
+        <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+        <h3 className="text-lg font-semibold mb-2">Failed to load dashboard</h3>
+        <p className="text-muted-foreground text-sm mb-4">Unable to fetch dashboard data. Please try again.</p>
+        <Button onClick={() => refetch()} className="min-h-[44px]">Try Again</Button>
+      </div>
+    );
   }
 
   const { stats, companies, recentRecords, referralInfo, shiftSummary, comparison } = data;
