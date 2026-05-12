@@ -2072,6 +2072,7 @@ function RecordsView() {
   const [records, setRecords] = useState<PaymentRecord[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false); // REC-016: track fetch failure
   const [filterCompany, setFilterCompany] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -2090,6 +2091,7 @@ function RecordsView() {
 
   const fetchRecords = async () => {
     setLoading(true);
+    setFetchError(false);
     try {
       const params = new URLSearchParams();
       if (filterCompany !== 'all') params.set('companyId', filterCompany);
@@ -2098,6 +2100,8 @@ function RecordsView() {
       setRecords(data.records);
     } catch {
       toast.error('Failed to load records');
+      setRecords([]);
+      setFetchError(true); // REC-016: mark error state
     } finally {
       setLoading(false);
     }
@@ -2157,12 +2161,26 @@ function RecordsView() {
       {records.length === 0 ? (
         <Card className="border-border">
           <CardContent className="py-12 text-center">
-            <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-foreground mb-1">No Records</h3>
-            <p className="text-muted-foreground mb-4 text-sm">Add your first payment record</p>
-            <Button onClick={() => setCurrentView('add-record')} className="bg-gradient-to-r from-blue-600 to-green-600 text-white min-h-[44px]">
-              <Plus className="h-4 w-4 mr-2" /> Add Record
-            </Button>
+            {fetchError ? (
+              /* REC-016: Error state with retry button */
+              <>
+                <AlertCircle className="h-12 w-12 text-red-400 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-foreground mb-1">Failed to Load</h3>
+                <p className="text-muted-foreground mb-4 text-sm">Could not fetch records. Check your connection and try again.</p>
+                <Button onClick={() => fetchRecords()} variant="outline" className="min-h-[44px]">
+                  <RefreshCw className="h-4 w-4 mr-2" /> Try Again
+                </Button>
+              </>
+            ) : (
+              <>
+                <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-foreground mb-1">No Records</h3>
+                <p className="text-muted-foreground mb-4 text-sm">Add your first payment record</p>
+                <Button onClick={() => setCurrentView('add-record')} className="bg-gradient-to-r from-blue-600 to-green-600 text-white min-h-[44px]">
+                  <Plus className="h-4 w-4 mr-2" /> Add Record
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -2211,10 +2229,13 @@ function RecordsView() {
                     )}
                   </div>
                   <div className="flex gap-1 shrink-0">
-                    <Button variant="ghost" size="icon" onClick={() => handleEdit(r.id)} className="h-10 w-10">
+                    {/* REC-015: Accessible labels for icon-only buttons */}
+                    <Button variant="ghost" size="icon" onClick={() => handleEdit(r.id)} className="h-10 w-10" aria-label={`Edit ${r.company.name} record`}
+                      >
                       <Edit3 className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => setDeleteId(r.id)} className="h-10 w-10 text-destructive hover:text-destructive">
+                    <Button variant="ghost" size="icon" onClick={() => setDeleteId(r.id)} className="h-10 w-10 text-destructive hover:text-destructive" aria-label={`Delete ${r.company.name} record`}
+                      >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
@@ -2311,7 +2332,10 @@ function RecordFormView({ isEdit = false }: { isEdit?: boolean }) {
       } else {
         setAutoHoursInfo(null);
       }
-    } catch { /* ignore */ }
+    } catch {
+      // REC-018: Show subtle feedback instead of silently swallowing
+      setAutoHoursInfo('Could not auto-calculate hours. You can enter them manually.');
+    }
   }, [companyId, month, year]);
 
   useEffect(() => {
@@ -2373,7 +2397,8 @@ function RecordFormView({ isEdit = false }: { isEdit?: boolean }) {
   };
 
   const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 5 }, (_, i) => currentYear - 2 + i);
+  // REC-017: Expanded year range from ±2 to ±5 years for backdating records
+  const years = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
 
   return (
     <div className="p-4 md:p-6 md:ml-64 space-y-4 max-w-2xl overflow-x-hidden">

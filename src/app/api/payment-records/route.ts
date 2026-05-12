@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ records, totals });
   } catch (error) {
     console.error('Payment records list error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to load payment records' }, { status: 500 });
   }
 }
 
@@ -189,6 +189,6 @@ export async function POST(request: NextRequest) {
     if (error instanceof Error && String(error).includes('UNIQUE constraint failed')) {
       return NextResponse.json({ error: 'A payment record already exists for this company/month/year' }, { status: 409 });
     }
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to create payment record' }, { status: 500 });
   }
 }

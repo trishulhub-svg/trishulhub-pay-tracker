@@ -142,15 +142,25 @@ export async function PUT(
       updateData.status = inputStatus;
     }
 
-    const record = await db.paymentRecord.update({
+    // REC-019 + REC-020: Use findUnique after update for consistent response shape with company relation
+    // Removes unsafe 'as any' cast and ensures company data is always included
+    await db.paymentRecord.update({
       where: { id },
       data: updateData,
-    } as any);
+    });
+    const record = await db.paymentRecord.findUnique({
+      where: { id },
+      include: { company: { select: { id: true, name: true } } },
+    });
 
     return NextResponse.json({ record });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Update payment record error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    // REC-022: Better error messages for common failures
+    if (error instanceof Error && String(error).includes('UNIQUE constraint failed')) {
+      return NextResponse.json({ error: 'A payment record already exists for this company/month/year' }, { status: 409 });
+    }
+    return NextResponse.json({ error: 'Failed to update payment record' }, { status: 500 });
   }
 }
 
@@ -177,6 +187,6 @@ export async function DELETE(
     return NextResponse.json({ message: 'Payment record deleted successfully' });
   } catch (error) {
     console.error('Delete payment record error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to delete payment record' }, { status: 500 });
   }
 }
