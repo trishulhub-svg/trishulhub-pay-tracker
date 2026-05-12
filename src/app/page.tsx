@@ -7,13 +7,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import {
   LayoutDashboard, FileText, Calendar, CalendarDays, Users, Settings,
-  LogOut, Plus, Edit3, Trash2, ChevronLeft, ChevronRight,
+  LogOut, Plus, Edit3, Trash2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Moon, Sun, Eye, EyeOff, Copy, Share2, Check, AlertCircle,
-  Clock, Building2, TrendingUp, PoundSterling, BarChart3,
-  Shield, X, UserPlus, Star, Info,
+  Clock, Building2, TrendingUp, TrendingDown, PoundSterling, BarChart3,
+  Shield, X, UserPlus, Star, Info, Gift, ArrowRight, RefreshCw,
   Loader2, Mail, Lock, User, KeyRound, ExternalLink, CheckCircle2,
   FileCheck, Monitor, Save, Server, Upload, FileUp, Sparkles, Brain, Trash, Globe
 } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { useAppStore, SessionUser } from '@/lib/store';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Button } from '@/components/ui/button';
@@ -1640,22 +1641,39 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedCompany, setSelectedCompany] = useState<string>('all');
+  const [lastRefresh, setLastRefresh] = useState<string>('');
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     fetchDashboard();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCompany]);
 
   const fetchDashboard = async () => {
+    // Abort previous request (DASH-007)
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
+
     setLoading(true);
     try {
       const url = selectedCompany !== 'all' ? `/api/dashboard?companyId=${selectedCompany}` : '/api/dashboard';
       const d = await apiFetch(url);
       setData(d);
+      setLastRefresh(new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }));
     } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') return;
       toast.error('Failed to load dashboard');
     } finally {
       setLoading(false);
     }
+  };
+
+  // DASH-010: Calculate month-over-month % change for stat cards
+  const calcChange = (current: number, previous: number): number | null => {
+    if (!comparison?.current && !comparison?.previous) return null;
+    if (!comparison?.current || comparison.current.totalExpected === 0) return null;
+    if (!comparison?.previous || comparison.previous.totalExpected === 0) return current > 0 ? 100 : null;
+    return ((current - previous) / Math.max(previous, 0.01)) * 100;
   };
 
   if (loading || !data) {
@@ -1664,13 +1682,32 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
 
   const { stats, companies, recentRecords, referralInfo, shiftSummary, comparison } = data;
 
+  // DASH-002: Company breakdown chart data
+  const companyChartData = data.companyStats
+    .filter(cs => cs.totals.totalExpected > 0)
+    .map(cs => ({ name: cs.name, expected: cs.totals.totalExpected, received: cs.totals.totalReceived, due: cs.totals.totalDue }));
+  const CHART_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ec4899', '#06b6d4', '#f97316'];
+
+  // DASH-006: Distinguish shift-computed hours vs manual hours
+  const hasManualHours = stats.workedHours > 0;
+
   return (
     <div className="p-4 md:p-6 md:ml-64 space-y-6 max-w-6xl overflow-x-hidden">
-      {/* Header */}
+      {/* Header + DASH-012 refresh timestamp */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Welcome back, {user.name.split(' ')[0]}!</h1>
-          <p className="text-muted-foreground text-sm">Here&apos;s your payment overview</p>
+          <div className="flex items-center gap-2 text-muted-foreground text-sm">
+            <span>Here&apos;s your payment overview</span>
+            {lastRefresh && (
+              <span className="flex items-center gap-1">
+                <span className="text-xs opacity-70">Updated {lastRefresh}</span>
+                <button onClick={fetchDashboard} className="hover:text-foreground transition-colors" title="Refresh">
+                  <RefreshCw className="h-3 w-3" />
+                </button>
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Select value={selectedCompany} onValueChange={setSelectedCompany}>
@@ -1687,35 +1724,73 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
         </div>
       </div>
 
-      {/* Stat cards */}
+      {/* Stat cards — DASH-010: with trend % change */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <StatCard
           title="Total Expected"
           value={formatCurrency(stats.totalExpected)}
           icon={PoundSterling}
           gradient="from-blue-600 to-blue-700 dark:from-blue-700 dark:to-blue-800"
+          change={calcChange(comparison.current?.totalExpected || 0, comparison.previous?.totalExpected || 0)}
         />
         <StatCard
           title="Total Received"
           value={formatCurrency(stats.totalReceived)}
           icon={TrendingUp}
           gradient="from-green-600 to-green-700 dark:from-green-700 dark:to-green-800"
+          change={calcChange(comparison.current?.totalReceived || 0, comparison.previous?.totalReceived || 0)}
         />
         <StatCard
           title="Total Due"
           value={formatCurrency(stats.totalDue)}
           icon={AlertCircle}
           gradient="from-amber-600 to-amber-700 dark:from-amber-700 dark:to-amber-800"
+          change={calcChange(comparison.current?.totalDue || 0, comparison.previous?.totalDue || 0)}
         />
         <StatCard
           title="HMRC Deductions"
           value={formatCurrency(stats.totalHMRC)}
           icon={BarChart3}
           gradient="from-purple-600 to-purple-700 dark:from-purple-700 dark:to-purple-800"
+          change={calcChange(comparison.current?.totalHMRC || 0, comparison.previous?.totalHMRC || 0)}
         />
       </div>
 
-      {/* Payment & Shift Summary row */}
+      {/* DASH-002: Company Earnings Chart */}
+      {companyChartData.length > 0 && (
+        <Card className="border-border">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <BarChart3 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              Earnings by Company
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-56 md:h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={companyChartData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                  <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => v >= 1000 ? `£${(v / 1000).toFixed(1)}k` : `£${v}`} />
+                  <Tooltip formatter={(value: number) => formatCurrency(value)} contentStyle={{ borderRadius: '8px', fontSize: '13px' }} />
+                  <Bar dataKey="expected" name="Expected" radius={[4, 4, 0, 0]}>
+                    {companyChartData.map((_, index) => (
+                      <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} fillOpacity={0.85} />
+                    ))}
+                  </Bar>
+                  <Bar dataKey="received" name="Received" radius={[4, 4, 0, 0]}>
+                    {companyChartData.map((_, index) => (
+                      <Cell key={`cell-recv-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} fillOpacity={0.5} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Payment & Shift Summary + DASH-003: Comparison */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Payment Summary */}
         <Card className="border-border">
@@ -1739,13 +1814,31 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
               <Badge className={STATUS_COLORS.PAID}>{stats.paidCount}</Badge>
             </div>
             <Separator />
+            {/* DASH-003: Month-over-month comparison */}
+            {(comparison.current || comparison.previous) && (
+              <div className="rounded-lg bg-muted/50 p-3 space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Month over Month</p>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="text-center">
+                    <p className="text-muted-foreground">{getMonthName(comparison.current?.month || 0)}</p>
+                    <p className="font-bold text-foreground">{formatCurrency(comparison.current?.totalExpected || 0)}</p>
+                    <p className="text-green-600 dark:text-green-400">{formatCurrency(comparison.current?.totalReceived || 0)} received</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-muted-foreground">{getMonthName(comparison.previous?.month || 0)}</p>
+                    <p className="font-bold text-foreground">{formatCurrency(comparison.previous?.totalExpected || 0)}</p>
+                    <p className="text-green-600 dark:text-green-400">{formatCurrency(comparison.previous?.totalReceived || 0)} received</p>
+                  </div>
+                </div>
+              </div>
+            )}
             <Button variant="outline" size="sm" className="w-full min-h-[44px]" onClick={() => setCurrentView('add-record')}>
               <Plus className="h-4 w-4 mr-2" /> Add Payment Record
             </Button>
           </CardContent>
         </Card>
 
-        {/* Shift Summary */}
+        {/* Shift Summary — DASH-006: clarified source */}
         <Card className="border-border">
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
@@ -1763,9 +1856,15 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
               <span className="font-semibold text-foreground">{shiftSummary.totalShifts}</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-sm text-muted-foreground">Break Minutes</span>
+              <span className="text-sm text-muted-foreground">Break Time</span>
               <span className="font-semibold text-foreground">{shiftSummary.totalBreakMinutes}m</span>
             </div>
+            {/* DASH-006: Show manual hours if different from computed */}
+            {hasManualHours && (
+              <div className="text-xs text-muted-foreground pt-1 border-t border-border/50">
+                <span>Manual hours (records): {stats.workedHours.toFixed(1)}h</span>
+              </div>
+            )}
             <Separator />
             <Button variant="outline" size="sm" className="w-full min-h-[44px]" onClick={() => setCurrentView('shifts')}>
               <CalendarDays className="h-4 w-4 mr-2" /> View Shifts
@@ -1774,7 +1873,37 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
         </Card>
       </div>
 
-      {/* Companies */}
+      {/* DASH-003: Referral status */}
+      {referralInfo && (
+        <Card className="border-border bg-gradient-to-r from-primary/5 to-transparent">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                  {referralInfo.isPremium ? <Star className="h-5 w-5 text-yellow-500" /> : <Gift className="h-5 w-5 text-primary" />}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    {referralInfo.isPremium ? 'You have Premium!' : `Refer friends to get Premium`}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {referralInfo.isPremium
+                      ? 'Enjoy unlimited features'
+                      : `${referralInfo.referralCount} referral${referralInfo.referralCount !== 1 ? 's' : ''} so far — share your code: ${referralInfo.referralCode}`}
+                  </p>
+                </div>
+              </div>
+              {!referralInfo.isPremium && (
+                <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(referralInfo.referralCode); toast.success('Referral code copied!'); }} className="min-h-[44px]">
+                  <Copy className="h-3.5 w-3.5 mr-1.5" /> Copy Code
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Companies — DASH-011: clickable cards */}
       {companies.length > 0 && (
         <Card className="border-border">
           <CardHeader className="pb-3">
@@ -1791,9 +1920,20 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
           <CardContent>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {data.companyStats.map((cs) => (
-                <div key={cs.id} className="p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors">
+                <button
+                  key={cs.id}
+                  onClick={() => { setSelectedCompany(cs.id); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                  className={`p-3 rounded-lg border text-left transition-all hover:shadow-sm ${
+                    selectedCompany === cs.id
+                      ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
+                      : 'border-border hover:bg-muted/50'
+                  }`}
+                >
                   <div className="flex items-center justify-between mb-2">
-                    <span className="font-medium text-foreground">{cs.name}</span>
+                    <span className="font-medium text-foreground flex items-center gap-1.5">
+                      {cs.name}
+                      {selectedCompany === cs.id && <span className="text-[10px] text-primary font-normal">(filtered)</span>}
+                    </span>
                     {cs.latestStatus && <Badge className={STATUS_COLORS[cs.latestStatus] || ''}>{cs.latestStatus}</Badge>}
                   </div>
                   <div className="text-xs text-muted-foreground space-y-1">
@@ -1812,9 +1952,14 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
                       </span>
                     </div>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
+            {selectedCompany !== 'all' && (
+              <Button variant="ghost" size="sm" onClick={() => setSelectedCompany('all')} className="w-full mt-3 text-xs text-muted-foreground min-h-[44px]">
+                <X className="h-3 w-3 mr-1" /> Clear filter — show all companies
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
@@ -1834,7 +1979,7 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
             </div>
           </CardHeader>
           <CardContent className="space-y-2">
-            {recentRecords.slice(0, 5).map((r) => (
+            {recentRecords.map((r) => (
               <div key={r.id} className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-foreground truncate">{r.company.name}</p>
@@ -1850,7 +1995,21 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
         </Card>
       )}
 
-      {/* Empty state */}
+      {/* DASH-009: Empty state for no records */}
+      {companies.length > 0 && stats.totalRecords === 0 && (
+        <Card className="border-border">
+          <CardContent className="py-12 text-center">
+            <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-foreground mb-1">No payment records yet</h3>
+            <p className="text-muted-foreground mb-4 text-sm">Add your first payment record to see your earnings overview</p>
+            <Button onClick={() => setCurrentView('add-record')} className="bg-gradient-to-r from-blue-600 to-green-600 text-white min-h-[44px]">
+              <Plus className="h-4 w-4 mr-2" /> Add Payment Record
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Empty state for no companies */}
       {companies.length === 0 && (
         <Card className="border-border">
           <CardContent className="py-12 text-center">
@@ -1870,7 +2029,9 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
 // ============================================================
 // STAT CARD
 // ============================================================
-function StatCard({ title, value, icon: Icon, gradient }: { title: string; value: string; icon: React.ElementType; gradient: string }) {
+function StatCard({ title, value, icon: Icon, gradient, change }: { title: string; value: string; icon: React.ElementType; gradient: string; change?: number | null }) {
+  const isUp = change !== null && change !== undefined && change >= 0;
+  const isDown = change !== null && change !== undefined && change < 0;
   return (
     <div className={`rounded-xl bg-gradient-to-br ${gradient} p-4 text-white shadow-sm`}>
       <div className="flex items-center justify-between mb-2">
@@ -1878,6 +2039,13 @@ function StatCard({ title, value, icon: Icon, gradient }: { title: string; value
         <Icon className="h-4 w-4 opacity-80" />
       </div>
       <p className="text-lg md:text-xl font-bold">{value}</p>
+      {change !== null && change !== undefined && (
+        <div className={`flex items-center gap-1 mt-1 text-xs ${isUp ? 'text-green-200' : 'text-red-200'}`}>
+          {isUp ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          <span>{isUp ? '+' : ''}{change.toFixed(0)}%</span>
+          <span className="opacity-70">vs last month</span>
+        </div>
+      )}
     </div>
   );
 }
