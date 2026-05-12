@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
             COALESCE(SUM(totalHMRC), 0) as totalHMRC,
             COALESCE(SUM(totalDue), 0) as totalDue,
             COALESCE(SUM(workedHours), 0) as workedHours
-          FROM PaymentRecord WHERE userId = ?${companyFilter}`,
+          FROM PaymentRecord pr WHERE pr.userId = ?${companyFilter}`,
           args: [user.id, ...companyArgs],
         }),
         // 2. Recent 5 records (was 10, only 5 shown in UI — DASH-005)
