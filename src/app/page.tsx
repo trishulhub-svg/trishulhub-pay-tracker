@@ -15,6 +15,7 @@ import {
   FileCheck, Monitor, Save, Server, Upload, FileUp, Sparkles, Brain, Trash, Globe
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppStore, SessionUser } from '@/lib/store';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Button } from '@/components/ui/button';
@@ -1638,45 +1639,37 @@ function MobileBottomNav({
 // DASHBOARD VIEW
 // ============================================================
 function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrentView: (v: string) => void }) {
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
   const [selectedCompany, setSelectedCompany] = useState<string>('all');
   const [lastRefresh, setLastRefresh] = useState<string>('');
-  const abortRef = useRef<AbortController | null>(null);
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    fetchDashboard();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCompany]);
-
-  const fetchDashboard = async () => {
-    // Abort previous request (DASH-007)
-    if (abortRef.current) abortRef.current.abort();
-    abortRef.current = new AbortController();
-
-    setLoading(true);
-    try {
+  // DASH-004: React Query — automatic caching, deduplication, background refetch
+  const { data, isLoading, isFetching, refetch } = useQuery({
+    queryKey: ['dashboard', selectedCompany],
+    queryFn: async () => {
       const url = selectedCompany !== 'all' ? `/api/dashboard?companyId=${selectedCompany}` : '/api/dashboard';
       const d = await apiFetch(url);
-      setData(d);
       setLastRefresh(new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }));
-    } catch (err: unknown) {
-      if (err instanceof Error && err.name === 'AbortError') return;
-      toast.error('Failed to load dashboard');
-    } finally {
-      setLoading(false);
-    }
+      return d;
+    },
+    staleTime: 2 * 60 * 1000,
+  });
+
+  // DASH-012: Manual refresh handler (invalidates cache + refetches)
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    refetch();
   };
 
   // DASH-010: Calculate month-over-month % change for stat cards
   const calcChange = (current: number, previous: number): number | null => {
-    if (!comparison?.current && !comparison?.previous) return null;
-    if (!comparison?.current || comparison.current.totalExpected === 0) return null;
-    if (!comparison?.previous || comparison.previous.totalExpected === 0) return current > 0 ? 100 : null;
+    if (!data?.comparison?.current && !data?.comparison?.previous) return null;
+    if (!data?.comparison?.current || data.comparison.current.totalExpected === 0) return null;
+    if (!data?.comparison?.previous || data.comparison.previous.totalExpected === 0) return current > 0 ? 100 : null;
     return ((current - previous) / Math.max(previous, 0.01)) * 100;
   };
 
-  if (loading || !data) {
+  if (isLoading || !data) {
     return <LoadingSkeleton />;
   }
 
@@ -1702,8 +1695,8 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
             {lastRefresh && (
               <span className="flex items-center gap-1">
                 <span className="text-xs opacity-70">Updated {lastRefresh}</span>
-                <button onClick={fetchDashboard} className="hover:text-foreground transition-colors" title="Refresh">
-                  <RefreshCw className="h-3 w-3" />
+                <button onClick={handleRefresh} className="hover:text-foreground transition-colors" title="Refresh">
+                  <RefreshCw className={`h-3 w-3 ${isFetching ? 'animate-spin' : ''}`} />
                 </button>
               </span>
             )}

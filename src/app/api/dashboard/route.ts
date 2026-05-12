@@ -98,15 +98,18 @@ export async function GET(request: NextRequest) {
             COALESCE(SUM(pr.totalReceived), 0) as totalReceived,
             COALESCE(SUM(pr.totalHMRC), 0) as totalHMRC,
             COALESCE(SUM(pr.totalDue), 0) as totalDue,
-            MAX(pr.status) as latestStatus
-          FROM (
-            SELECT companyId, status, totalExpected, totalReceived, totalHMRC, totalDue,
-              ROW_NUMBER() OVER (PARTITION BY companyId ORDER BY year DESC, month DESC) as rn
-            FROM PaymentRecord WHERE userId = ?${companyFilter}
-          ) pr
+            (
+              SELECT pr2.status FROM PaymentRecord pr2
+              WHERE pr2.companyId = pr.companyId
+                AND pr2.userId = ?
+              ORDER BY pr2.year DESC, pr2.month DESC
+              LIMIT 1
+            ) as latestStatus
+          FROM PaymentRecord pr
           JOIN Company c ON pr.companyId = c.id
+          WHERE pr.userId = ?${companyFilter}
           GROUP BY pr.companyId`,
-          args: [user.id, ...companyArgs],
+          args: [user.id, user.id, ...companyArgs],
         }),
       ]);
 
