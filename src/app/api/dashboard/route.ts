@@ -282,6 +282,8 @@ export async function GET(request: NextRequest) {
     }
   } catch (error) {
     console.error('Dashboard error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    // Don't leak internal details in production, but include enough to debug
+    return NextResponse.json({ error: `Dashboard error: ${msg}` }, { status: 500 });
   }
 }

@@ -1645,7 +1645,7 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
   const queryClient = useQueryClient();
 
   // DASH-004: React Query — automatic caching, deduplication, background refetch
-  const { data, isLoading, isFetching, refetch } = useQuery({
+  const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ['dashboard', selectedCompany],
     queryFn: async () => {
       const url = selectedCompany !== 'all' ? `/api/dashboard?companyId=${selectedCompany}` : '/api/dashboard';
@@ -1654,6 +1654,7 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
       return d;
     },
     staleTime: 2 * 60 * 1000,
+    retry: 2,
   });
 
   // DASH-012: Manual refresh handler (invalidates cache + refetches)
@@ -1676,11 +1677,18 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
   }
 
   if (!data) {
+    const errMsg = error instanceof Error ? error.message : 'Unknown error';
     return (
       <div className="p-4 md:p-6 md:ml-64 text-center py-12">
-        <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+        <AlertCircle className="h-12 w-12 text-red-400 mx-auto mb-4" />
         <h3 className="text-lg font-semibold mb-2">Failed to load dashboard</h3>
-        <p className="text-muted-foreground text-sm mb-4">Unable to fetch dashboard data. Please try again.</p>
+        <p className="text-red-400 text-xs font-mono mb-2 break-all">{errMsg}</p>
+        <p className="text-muted-foreground text-sm mb-4">
+          {selectedCompany !== 'all' && (
+            <button onClick={() => setSelectedCompany('all')} className="text-blue-500 underline mr-3">Back to All</button>
+          )}
+          Please try again or go back to all companies.
+        </p>
         <Button onClick={() => refetch()} className="min-h-[44px]">Try Again</Button>
       </div>
     );
