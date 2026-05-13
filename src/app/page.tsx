@@ -1150,7 +1150,7 @@ function SignupForm({
               <Label htmlFor="signup-referral">Referral Code (Optional)</Label>
               <div className="relative">
                 <UserPlus className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input id="signup-referral" placeholder="TRISHUL-XXXXXX" value={referralCode} onChange={(e) => setReferralCode(e.target.value.toUpperCase())} className="pl-10 h-12" />
+                <Input id="signup-referral" placeholder="TRISHUL-XXXXXX" value={referralCode} onChange={(e) => setReferralCode(e.target.value.toUpperCase())} className="pl-10 h-12" maxLength={13} />
                 {referralParam && referralCode === referralParam && (
                   <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-green-600 dark:text-green-400" />
                 )}
@@ -4091,6 +4091,7 @@ function ShiftEditSheet({
 function ReferralsView({ user }: { user: SessionUser }) {
   const [data, setData] = useState<ReferralData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
 
@@ -4098,11 +4099,14 @@ function ReferralsView({ user }: { user: SessionUser }) {
 
   const fetchReferrals = async () => {
     setLoading(true);
+    setFetchError(null);
     try {
       const d = await apiFetch('/api/referrals');
       setData(d);
-    } catch {
-      toast.error('Failed to load referrals');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to load referrals';
+      setFetchError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -4146,7 +4150,24 @@ function ReferralsView({ user }: { user: SessionUser }) {
     }
   };
 
-  if (loading || !data) return <LoadingSkeleton />;
+  if (loading) return <LoadingSkeleton />;
+
+  // REF-010: Error state with retry button instead of infinite skeleton
+  if (!data || fetchError) {
+    return (
+      <div className="p-4 md:p-6 md:ml-64 space-y-6 max-w-2xl">
+        <Card className="border-red-200 dark:border-red-800/40 bg-red-50/50 dark:bg-red-950/20">
+          <CardContent className="p-6 text-center space-y-3">
+            <AlertCircle className="h-10 w-10 text-red-500 mx-auto" />
+            <p className="text-sm text-foreground">{fetchError || 'Unable to load referral data.'}</p>
+            <Button onClick={fetchReferrals} variant="outline" className="min-h-[44px]">
+              <RefreshCw className="h-4 w-4 mr-2" /> Try Again
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 md:p-6 md:ml-64 space-y-6 max-w-2xl overflow-x-hidden">
@@ -4662,6 +4683,7 @@ function AdminUsersView() {
                         {u.isPremium && <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 text-[10px]"><Star className="h-3 w-3 mr-0.5" /> PRO</Badge>}
                       </div>
                       <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                      {u.referredByName && <p className="text-[10px] text-blue-600 dark:text-blue-400">Referred by: {u.referredByName}</p>}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0 ml-12 sm:ml-0">
@@ -4722,6 +4744,7 @@ function AdminUsersView() {
                         <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 text-[10px]">Deactivated</Badge>
                       </div>
                       <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                      {u.referredByName && <p className="text-[10px] text-blue-600 dark:text-blue-400">Referred by: {u.referredByName}</p>}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0 ml-12 sm:ml-0">

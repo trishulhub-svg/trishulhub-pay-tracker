@@ -119,6 +119,15 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+      // REF-007: Prevent self-referral via same email domain (alt-account detection)
+      const newDomain = normalizedEmail.split('@')[1];
+      const referrerDomain = referrer.email.split('@')[1];
+      if (newDomain && referrerDomain && newDomain === referrerDomain) {
+        return NextResponse.json(
+          { error: 'You cannot use a referral code from someone with the same email provider. Ask a friend with a different email to refer you!' },
+          { status: 400 }
+        );
+      }
       referredBy = normalizedReferralCode;
       await db.user.update({
         where: { id: referrer.id },

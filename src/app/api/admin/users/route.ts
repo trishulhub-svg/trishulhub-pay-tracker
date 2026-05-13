@@ -14,6 +14,16 @@ export async function GET() {
       orderBy: { createdAt: 'desc' },
     });
 
+    // REF-020: Resolve referral codes to referrer names
+    const referralCodes = [...new Set(users.map((u: any) => u.referredBy).filter(Boolean))] as string[];
+    let referrerMap: Record<string, string> = {};
+    if (referralCodes.length > 0) {
+      for (const code of referralCodes) {
+        const referrer = await db.user.findUnique({ where: { referralCode: code } });
+        if (referrer) referrerMap[code] = referrer.name || referrer.email;
+      }
+    }
+
     // Map to safe public format (no password)
     const safeUsers = users.map((u: any) => ({
       id: u.id,
@@ -23,6 +33,7 @@ export async function GET() {
       isPremium: !!u.isPremium,
       deactivated: !!u.deactivated,
       referredBy: u.referredBy || null,
+      referredByName: u.referredBy ? (referrerMap[u.referredBy] || null) : null,
       createdAt: u.createdAt,
     }));
 
@@ -102,6 +113,25 @@ export async function PATCH(request: NextRequest) {
     if (action === 'delete') {
       // Permanently delete user and all related data
       // Delete in order: shifts, payment records, pay rate history, companies, OTP codes, then user
+
+      // REF-006: If the deleted user was referred, re-check the referrer's premium status
+      const userToDelete = await db.user.findUnique({ where: { id: userId } });
+      if (userToDelete?.referredBy) {
+        const referrer = await db.user.findUnique({ where: { referralCode: userToDelete.referredBy } });
+        if (referrer) {
+          // Count how many users have this referral code (includes the one being deleted)
+          const allReferred = await db.user.count({
+            where: { referredBy: userToDelete.referredBy },
+          });
+          if (allReferred <= 1) {
+            // This is the last (or only) referred user — revoke premium
+            await db.user.update({
+              where: { id: referrer.id },
+              data: { isPremium: false },
+            });
+          }
+        }
+      }
 
       // 1. Delete all shifts for this user
       const userShifts = await db.shift.findMany({ where: { userId } });
