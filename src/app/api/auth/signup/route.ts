@@ -3,7 +3,7 @@ import { db } from '@/lib/db';
 import { hashPassword } from '@/lib/auth';
 import { createSessionToken } from '@/lib/session';
 import { isDisposableEmail, isLikelyValidEmailDomain } from '@/lib/email-validation';
-import { timingSafeEqual } from 'crypto';
+import { timingSafeEqual, randomInt } from 'crypto';
 
 function safeCompare(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -14,11 +14,13 @@ function safeCompare(a: string, b: string): boolean {
   }
 }
 
+const REFERRAL_CODE_RE = /^TRISHUL-[A-Z0-9]{6}$/;
+
 function generateReferralCode(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let code = 'TRISHUL-';
   for (let i = 0; i < 6; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
+    code += chars.charAt(randomInt(chars.length));
   }
   return code;
 }
@@ -75,11 +77,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid verification code. Please try again.' }, { status: 400 });
     }
 
+    // REF-022: Normalize referral code to uppercase on server
+    const normalizedReferralCode = referralCode ? String(referralCode).trim().toUpperCase() : null;
+
+    // REF-002: Validate referral code format before DB lookup
+    if (normalizedReferralCode && !REFERRAL_CODE_RE.test(normalizedReferralCode)) {
+      return NextResponse.json(
+        { error: 'Invalid referral code format. It should look like TRISHUL-XXXXXX.' },
+        { status: 400 }
+      );
+    }
+
     // Run independent checks in parallel: existing user + hash password + referral lookup
     const [existing, hashedPassword, referrer] = await Promise.all([
       db.user.findUnique({ where: { email: normalizedEmail } }),
       hashPassword(password),
-      referralCode ? db.user.findUnique({ where: { referralCode } }).catch(() => null) : Promise.resolve(null),
+      normalizedReferralCode
+        ? db.user.findUnique({ where: { referralCode: normalizedReferralCode } }).catch(() => null)
+        : Promise.resolve(null),
     ]);
 
     if (existing) {
@@ -94,10 +109,17 @@ export async function POST(request: NextRequest) {
       codeExists = await db.user.findUnique({ where: { referralCode: newReferralCode } });
     }
 
-    // Mark referrer as premium if valid
+    // Mark referrer as premium if valid (and not deactivated)
     let referredBy: string | null = null;
     if (referrer) {
-      referredBy = referralCode;
+      // REF-001: Reject referral codes from deactivated/banned accounts
+      if (referrer.deactivated) {
+        return NextResponse.json(
+          { error: 'This referral code is no longer valid.' },
+          { status: 400 }
+        );
+      }
+      referredBy = normalizedReferralCode;
       await db.user.update({
         where: { id: referrer.id },
         data: { isPremium: true },

@@ -46,6 +46,7 @@ function getTursoClient(): Client {
     _tursoClient.execute({ sql: 'CREATE INDEX IF NOT EXISTS idx_shift_userId_date ON Shift(userId, date)', args: [] }).catch(() => {});
     _tursoClient.execute({ sql: 'CREATE INDEX IF NOT EXISTS idx_shift_userId_companyId_date ON Shift(userId, companyId, date)', args: [] }).catch(() => {});
     _tursoClient.execute({ sql: 'CREATE INDEX IF NOT EXISTS idx_company_userId ON Company(userId)', args: [] }).catch(() => {});
+    _tursoClient.execute({ sql: 'CREATE INDEX IF NOT EXISTS idx_user_referredBy ON User(referredBy)', args: [] }).catch(() => {});
   }
 
   return _tursoClient;
