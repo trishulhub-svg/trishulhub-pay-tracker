@@ -26,6 +26,21 @@ export async function GET(request: NextRequest) {
       'July', 'August', 'September', 'October', 'November', 'December'];
 
     if (from && to) {
+      // SHI-015: Validate custom date range
+      const fromObj = new Date(`${from}T00:00:00`);
+      const toObj = new Date(`${to}T00:00:00`);
+      if (isNaN(fromObj.getTime()) || isNaN(toObj.getTime())) {
+        return NextResponse.json({ error: 'Invalid date format for from/to' }, { status: 400 });
+      }
+      if (fromObj > toObj) {
+        return NextResponse.json({ error: 'Start date must be before end date' }, { status: 400 });
+      }
+      // Max 1 year range to prevent expensive queries
+      const maxRange = new Date(fromObj);
+      maxRange.setFullYear(maxRange.getFullYear() + 1);
+      if (toObj > maxRange) {
+        return NextResponse.json({ error: 'Date range cannot exceed 1 year' }, { status: 400 });
+      }
       startDate = from;
       endDate = to;
       useLte = true;

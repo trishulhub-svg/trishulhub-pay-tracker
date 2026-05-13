@@ -37,12 +37,14 @@ function getTursoClient(): Client {
     // Enable connection pooling for better performance on serverless
   });
 
-  // REC-012: Create performance indexes on first connection (idempotent — IF NOT EXISTS)
+  // REC-012 + SHI-011: Create performance indexes on first connection (idempotent — IF NOT EXISTS)
   if (!_indexesCreated) {
     _indexesCreated = true;
     _tursoClient.execute({ sql: 'CREATE INDEX IF NOT EXISTS idx_pr_userId ON PaymentRecord(userId)', args: [] }).catch(() => {});
     _tursoClient.execute({ sql: 'CREATE INDEX IF NOT EXISTS idx_pr_userId_status ON PaymentRecord(userId, status)', args: [] }).catch(() => {});
     _tursoClient.execute({ sql: 'CREATE INDEX IF NOT EXISTS idx_shift_userId ON Shift(userId)', args: [] }).catch(() => {});
+    _tursoClient.execute({ sql: 'CREATE INDEX IF NOT EXISTS idx_shift_userId_date ON Shift(userId, date)', args: [] }).catch(() => {});
+    _tursoClient.execute({ sql: 'CREATE INDEX IF NOT EXISTS idx_shift_userId_companyId_date ON Shift(userId, companyId, date)', args: [] }).catch(() => {});
     _tursoClient.execute({ sql: 'CREATE INDEX IF NOT EXISTS idx_company_userId ON Company(userId)', args: [] }).catch(() => {});
   }
 

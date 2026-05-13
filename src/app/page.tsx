@@ -301,8 +301,10 @@ function calculateShiftHours(startTime: string, endTime: string, breakMinutes: n
 // Format decimal hours into human-readable "Xh XXm" (e.g. 8.12 → "8h 07m")
 function formatHoursMinutes(decimalHours: number): string {
   if (decimalHours <= 0) return '0h 0m';
-  const h = Math.floor(decimalHours);
-  const m = Math.round((decimalHours - h) * 60);
+  // SHI-017: Use total minutes approach to avoid "60m" rounding edge case
+  const totalMinutes = Math.round(decimalHours * 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
   return `${h}h ${m}m`;
 }
 
@@ -3168,8 +3170,9 @@ function ShiftsView({ user }: { user: SessionUser }) {
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+          className="h-6 w-6 shrink-0 md:opacity-0 md:group-hover:opacity-100 opacity-70 transition-opacity"
           onClick={(e) => { e.stopPropagation(); setDeleteId(shift.id); }}
+          aria-label={`Delete ${shift.date} shift`}
         >
           <Trash2 className="h-3 w-3 text-destructive" />
         </Button>

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 
+// SHI-020: Valid shift types enum
+const VALID_SHIFT_TYPES = ['REGULAR', 'OVERTIME', 'HOLIDAY', 'SICK', 'ON_CALL'] as const;
+
 export async function GET(request: NextRequest) {
   try {
     const user = await getSession();
@@ -29,7 +32,7 @@ export async function GET(request: NextRequest) {
       where.date = { gte: startDate, lt: endDate };
     }
 
-    // PERF-010: Support limit parameter for pagination (default: 200, max: 500)
+    // SHI-003: Support limit parameter for pagination (default: 200, max: 500)
     const queryLimit = limitParam ? Math.min(parseInt(limitParam) || 200, 500) : 200;
 
     const shifts = await db.shift.findMany({
@@ -53,7 +56,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ shifts: limitedShifts, totals, hasMore: shifts.length > queryLimit });
   } catch (error) {
     console.error('Shifts list error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to load shifts' }, { status: 500 });
   }
 }
 
@@ -80,10 +83,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'End time must be in HH:MM format (e.g., 17:00)' }, { status: 400 });
     }
 
-    // Validate date format (YYYY-MM-DD)
+    // SHI-006: Validate date format AND semantics (reject impossible dates like 2025-13-99)
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if (!dateRegex.test(date)) {
       return NextResponse.json({ error: 'Date must be in YYYY-MM-DD format' }, { status: 400 });
+    }
+    const dateObj = new Date(`${date}T00:00:00`);
+    if (isNaN(dateObj.getTime())) {
+      return NextResponse.json({ error: 'Invalid date' }, { status: 400 });
+    }
+
+    // SHI-002: Validate breakMinutes >= 0
+    if (breakMinutes !== undefined && breakMinutes !== null && Number(breakMinutes) < 0) {
+      return NextResponse.json({ error: 'Break minutes cannot be negative' }, { status: 400 });
+    }
+
+    // SHI-007: Validate payRate >= 0
+    if (payRate !== undefined && payRate !== null && Number(payRate) < 0) {
+      return NextResponse.json({ error: 'Pay rate cannot be negative' }, { status: 400 });
+    }
+
+    // SHI-005: Validate notes and client max length
+    if (notes && typeof notes === 'string' && notes.length > 1000) {
+      return NextResponse.json({ error: 'Notes must be under 1000 characters' }, { status: 400 });
+    }
+    if (client && typeof client === 'string' && client.length > 200) {
+      return NextResponse.json({ error: 'Client name must be under 200 characters' }, { status: 400 });
+    }
+
+    // SHI-020: Validate shiftType against enum
+    if (shiftType && !VALID_SHIFT_TYPES.includes(shiftType as any)) {
+      return NextResponse.json({ error: `Invalid shift type. Must be one of: ${VALID_SHIFT_TYPES.join(', ')}` }, { status: 400 });
     }
 
     // Verify company belongs to user
@@ -95,16 +125,13 @@ export async function POST(request: NextRequest) {
     // Use provided payRate, or fall back to effective pay rate from history, then company's payRate
     let shiftPayRate = company.payRate || 0;
     if (payRate !== undefined) {
-      // User explicitly provided a custom rate for this shift
       shiftPayRate = parseFloat(payRate) || 0;
     } else {
-      // PERF-009: Only fetch rates effective on/before shift date (not ALL history)
       try {
         const rateHistory = await db.payRateHistory.findMany({
           where: { companyId, effectiveFrom: { lte: date } },
           orderBy: { effectiveFrom: 'desc' },
         });
-        // First result is the most recent effective rate
         if (rateHistory.length > 0) {
           shiftPayRate = rateHistory[0].payRate;
         }
@@ -119,8 +146,8 @@ export async function POST(request: NextRequest) {
     let startMinutes = startH * 60 + startM;
     let endMinutes = endH * 60 + endM;
 
-    // Handle overnight shifts
-    if (endMinutes <= startMinutes) {
+    // SHI-004: Use strict < for overnight detection (=== means 0-hour shift, not 24-hour)
+    if (endMinutes < startMinutes) {
       endMinutes += 24 * 60; // Add a day
     }
 
@@ -146,6 +173,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ shift }, { status: 201 });
   } catch (error) {
     console.error('Create shift error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to create shift' }, { status: 500 });
   }
 }

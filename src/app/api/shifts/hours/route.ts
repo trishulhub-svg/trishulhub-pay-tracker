@@ -14,6 +14,8 @@ export async function GET(request: NextRequest) {
     const companyId = searchParams.get('companyId');
     const month = searchParams.get('month');
     const year = searchParams.get('year');
+    // SHI-019: Make shifts array opt-in via query parameter
+    const includeShifts = searchParams.get('includeShifts') === 'true';
 
     if (!companyId || !month || !year) {
       return NextResponse.json({ error: 'companyId, month, and year are required' }, { status: 400 });
@@ -37,20 +39,26 @@ export async function GET(request: NextRequest) {
     const totalHours = shifts.reduce((acc, s) => acc + s.totalHours, 0);
     const totalShifts = shifts.length;
 
-    return NextResponse.json({
+    const response: any = {
       totalHours: Math.round(totalHours * 100) / 100,
       totalShifts,
-      shifts: shifts.map(s => ({
+    };
+
+    // SHI-019: Only include shifts array when explicitly requested
+    if (includeShifts) {
+      response.shifts = shifts.map(s => ({
         id: s.id,
         date: s.date,
         startTime: s.startTime,
         endTime: s.endTime,
         totalHours: s.totalHours,
         shiftType: s.shiftType,
-      })),
-    });
+      }));
+    }
+
+    return NextResponse.json(response);
   } catch (error) {
     console.error('Shift hours error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to calculate shift hours' }, { status: 500 });
   }
 }
