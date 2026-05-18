@@ -12,7 +12,7 @@ import {
   Clock, Building2, TrendingUp, TrendingDown, PoundSterling, BarChart3,
   Shield, X, UserPlus, Star, Info, Gift, ArrowRight, RefreshCw,
   Loader2, Mail, Lock, User, KeyRound, ExternalLink, CheckCircle2,
-  FileCheck, Monitor, Save, Server, Upload, FileUp, Sparkles, Brain, Trash, Globe
+  FileCheck, Monitor, Save, Server, Upload, FileUp, Sparkles, Brain, Trash, Globe, RotateCcw
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -5534,6 +5534,7 @@ function ImportView({ user }: { user: SessionUser }) {
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [reversingId, setReversingId] = useState<string | null>(null);
   const [showReverseDialog, setShowReverseDialog] = useState<string | null>(null);
+  const [deletingLogId, setDeletingLogId] = useState<string | null>(null);
 
   const fetchImportLogs = useCallback(async () => {
     setLoadingLogs(true);
@@ -5637,7 +5638,11 @@ function ImportView({ user }: { user: SessionUser }) {
         const result = await res.json();
         if (!res.ok) throw new Error(result.error || 'Failed to save imported data');
         setImportResult(result.results);
-        toast.success(`Imported ${result.results.shiftsCreated} shifts and ${result.results.paymentsCreated} payments!`);
+        const skippedParts = [];
+        if (result.results.shiftsSkipped > 0) skippedParts.push(`${result.results.shiftsSkipped} duplicate shifts skipped`);
+        if (result.results.paymentsSkipped > 0) skippedParts.push(`${result.results.paymentsSkipped} duplicate payments skipped`);
+        const baseMsg = `Imported ${result.results.shiftsCreated} shifts and ${result.results.paymentsCreated} payments`;
+        toast.success(skippedParts.length > 0 ? `${baseMsg} (${skippedParts.join(', ')}).` : `${baseMsg}!`);
       } finally {
         clearTimeout(timeoutId);
       }
@@ -5651,17 +5656,43 @@ function ImportView({ user }: { user: SessionUser }) {
   const handleReverseImport = async (importId: string) => {
     setReversingId(importId);
     try {
-      const result = await apiFetch('/api/import/reverse', {
-        method: 'POST',
-        body: JSON.stringify({ importId }),
-      });
-      toast.success(result.message || 'Import reversed successfully');
+      // Use direct fetch with 60s timeout for batch operations
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60_000);
+      try {
+        const res = await fetch('/api/import/reverse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ importId }),
+          signal: controller.signal,
+        });
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error || 'Failed to reverse import');
+        toast.success(result.message || 'Import reversed successfully');
+      } finally {
+        clearTimeout(timeoutId);
+      }
       fetchImportLogs();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to reverse import');
     } finally {
       setReversingId(null);
       setShowReverseDialog(null);
+    }
+  };
+
+  const handleDeleteImportLog = async (importId: string) => {
+    setDeletingLogId(importId);
+    try {
+      const res = await fetch(`/api/import/logs/${importId}`, { method: 'DELETE' });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Failed to delete');
+      toast.success('Import history deleted');
+      fetchImportLogs();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete import history');
+    } finally {
+      setDeletingLogId(null);
     }
   };
 
@@ -6087,17 +6118,47 @@ function ImportView({ user }: { user: SessionUser }) {
                       )}
 
                       {!log.reversed && (
+                        <div className="flex items-center gap-2">
+                          <Button
+                            onClick={() => setShowReverseDialog(log.id)}
+                            variant="outline"
+                            size="sm"
+                            className="text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-950/30 h-8 text-xs"
+                            disabled={reversingId === log.id || deletingLogId === log.id}
+                          >
+                            {reversingId === log.id ? (
+                              <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Reversing...</>
+                            ) : (
+                              <><RotateCcw className="h-3 w-3 mr-1" /> Reverse Import</>
+                            )}
+                          </Button>
+                          <Button
+                            onClick={() => handleDeleteImportLog(log.id)}
+                            variant="outline"
+                            size="sm"
+                            className="text-muted-foreground border-border hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-600 dark:hover:text-red-400 h-8 text-xs"
+                            disabled={deletingLogId === log.id || reversingId === log.id}
+                          >
+                            {deletingLogId === log.id ? (
+                              <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Deleting...</>
+                            ) : (
+                              <><Trash2 className="h-3 w-3 mr-1" /> Delete</>
+                            )}
+                          </Button>
+                        </div>
+                      )}
+                      {log.reversed && (
                         <Button
-                          onClick={() => setShowReverseDialog(log.id)}
+                          onClick={() => handleDeleteImportLog(log.id)}
                           variant="outline"
                           size="sm"
-                          className="text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-950/30 h-8 text-xs"
-                          disabled={reversingId === log.id}
+                          className="text-muted-foreground border-border hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-600 dark:hover:text-red-400 h-8 text-xs"
+                          disabled={deletingLogId === log.id}
                         >
-                          {reversingId === log.id ? (
-                            <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Reversing...</>
+                          {deletingLogId === log.id ? (
+                            <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Deleting...</>
                           ) : (
-                            <><Trash className="h-3 w-3 mr-1" /> Reverse Import</>
+                            <><Trash2 className="h-3 w-3 mr-1" /> Delete History</>
                           )}
                         </Button>
                       )}

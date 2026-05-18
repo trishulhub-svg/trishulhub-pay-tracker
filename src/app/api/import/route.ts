@@ -197,11 +197,11 @@ function findCompanyMatch(companyName: string | undefined, companies: any[]): st
 
 function mapRowToShift(row: Record<string, string>, companies: any[]): any | null {
   const date = findField(row, 'date', 'shift date', 'shiftdate', 'work date', 'workdate');
-  const startTime = findField(row, 'start time', 'starttime', 'start', 'clock in', 'clockin', 'time in');
-  const endTime = findField(row, 'end time', 'endtime', 'end', 'clock out', 'clockout', 'time out');
+  const startTimeRaw = findField(row, 'start time', 'starttime', 'start', 'clock in', 'clockin', 'time in');
+  const endTimeRaw = findField(row, 'end time', 'endtime', 'end', 'clock out', 'clockout', 'time out');
   const companyName = findField(row, 'company', 'company name', 'companyname', 'employer', 'client');
-  const totalHours = findField(row, 'total hours', 'totalhours', 'hours', 'hours worked', 'hoursworked');
-  const breakMinutes = findField(row, 'break', 'break minutes', 'breakminutes', 'break mins', 'breakmins');
+  const totalHoursRaw = findField(row, 'total hours', 'totalhours', 'hours', 'hours worked', 'hoursworked');
+  const breakMinutesRaw = findField(row, 'break', 'break minutes', 'breakminutes', 'break mins', 'breakmins');
   const payRate = findField(row, 'pay rate', 'payrate', 'rate', 'hourly rate', 'hourlyrate', 'hour rate');
   const shiftType = findField(row, 'shift type', 'shifttype', 'type', 'shift');
   const notes = findField(row, 'notes', 'note', 'comment', 'comments', 'description');
@@ -210,13 +210,30 @@ function mapRowToShift(row: Record<string, string>, companies: any[]): any | nul
   if (!date) return null;
 
   const companyId = findCompanyMatch(companyName, companies);
+  const breakMinutesNum = breakMinutesRaw ? parseNumber(breakMinutesRaw) : 0;
+
+  // Auto-calculate totalHours from start/end time when not explicitly provided
+  let totalHours = totalHoursRaw ? parseNumber(totalHoursRaw) : 0;
+  if (!totalHours && startTimeRaw && endTimeRaw) {
+    try {
+      const st = normalizeTime(startTimeRaw);
+      const et = normalizeTime(endTimeRaw);
+      const [sh, sm] = st.split(':').map(Number);
+      const [eh, em] = et.split(':').map(Number);
+      let mins = (eh * 60 + em) - (sh * 60 + sm);
+      if (mins < 0) mins += 24 * 60; // overnight shift
+      mins -= breakMinutesNum;
+      if (mins < 0) mins = 0;
+      totalHours = Math.round((mins / 60) * 100) / 100;
+    } catch { /* keep 0 */ }
+  }
 
   return {
     date: normalizeDate(date),
-    startTime: normalizeTime(startTime),
-    endTime: normalizeTime(endTime),
-    breakMinutes: breakMinutes ? parseNumber(breakMinutes) : 0,
-    totalHours: totalHours ? parseNumber(totalHours) : 0,
+    startTime: normalizeTime(startTimeRaw),
+    endTime: normalizeTime(endTimeRaw),
+    breakMinutes: breakMinutesNum,
+    totalHours,
     payRate: payRate ? parseNumber(payRate) : 0,
     shiftType: normalizeShiftType(shiftType),
     notes: notes || null,

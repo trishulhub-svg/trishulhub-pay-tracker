@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 
+// Allow up to 60s for large reverse operations on Vercel
+export const maxDuration = 60;
+
 // POST /api/import/reverse — Reverse/undo an import, deleting all data from that import
 export async function POST(request: NextRequest) {
   try {
@@ -43,43 +46,71 @@ export async function POST(request: NextRequest) {
       errors: [] as string[],
     };
 
-    // Delete all shifts from this import
-    for (const shiftId of importEntry.shiftIds) {
-      try {
-        await db.shift.delete({ where: { id: shiftId } });
-        results.shiftsDeleted++;
-      } catch (e) {
-        // Shift might have been manually deleted already
-        console.warn(`[IMPORT REVERSE] Shift ${shiftId} not found or already deleted`);
-      }
-    }
+    // Use batch DELETE via Turso direct client for performance
+    const { getTursoClientIfAvailable } = await import('@/lib/db');
+    const tursoClient = getTursoClientIfAvailable();
 
-    // Delete all payment records from this import
-    for (const paymentId of importEntry.paymentIds) {
-      try {
-        await db.paymentRecord.delete({ where: { id: paymentId } });
-        results.paymentsDeleted++;
-      } catch (e) {
-        // Payment might have been manually deleted already
-        console.warn(`[IMPORT REVERSE] Payment ${paymentId} not found or already deleted`);
-      }
-    }
-
-    // Delete companies that were auto-created by this import
-    // Only delete if the company has no other shifts or payments linked to it
-    for (const companyId of importEntry.companyIds) {
-      try {
-        // Check if company has any remaining shifts or payments
-        const remainingShifts = await db.shift.count({ where: { companyId } });
-        const remainingPayments = await db.paymentRecord.count({ where: { companyId } });
-
-        if (remainingShifts === 0 && remainingPayments === 0) {
-          await db.company.delete({ where: { id: companyId } });
-          results.companiesDeleted++;
+    // ─── Batch delete shifts ───
+    if (importEntry.shiftIds && importEntry.shiftIds.length > 0) {
+      if (tursoClient) {
+        // Turso: single batch DELETE with IN clause
+        const placeholders = importEntry.shiftIds.map(() => '?').join(', ');
+        try {
+          await tursoClient.execute({
+            sql: `DELETE FROM Shift WHERE id IN (${placeholders})`,
+            args: importEntry.shiftIds,
+          });
+          results.shiftsDeleted = importEntry.shiftIds.length;
+        } catch (e) {
+          // Fallback to sequential
+          for (const shiftId of importEntry.shiftIds) {
+            try { await db.shift.delete({ where: { id: shiftId } }); results.shiftsDeleted++; } catch {}
+          }
         }
-        // If company still has other data, don't delete it — it might have been used elsewhere
-      } catch (e) {
-        console.warn(`[IMPORT REVERSE] Company ${companyId} not found or already deleted`);
+      } else {
+        // Local SQLite: parallel deletes
+        await Promise.all(importEntry.shiftIds.map((shiftId: string) =>
+          db.shift.delete({ where: { id: shiftId } }).then(() => { results.shiftsDeleted++; }).catch(() => {})
+        ));
+      }
+    }
+
+    // ─── Batch delete payments ───
+    if (importEntry.paymentIds && importEntry.paymentIds.length > 0) {
+      if (tursoClient) {
+        const placeholders = importEntry.paymentIds.map(() => '?').join(', ');
+        try {
+          await tursoClient.execute({
+            sql: `DELETE FROM PaymentRecord WHERE id IN (${placeholders})`,
+            args: importEntry.paymentIds,
+          });
+          results.paymentsDeleted = importEntry.paymentIds.length;
+        } catch (e) {
+          for (const paymentId of importEntry.paymentIds) {
+            try { await db.paymentRecord.delete({ where: { id: paymentId } }); results.paymentsDeleted++; } catch {}
+          }
+        }
+      } else {
+        await Promise.all(importEntry.paymentIds.map((paymentId: string) =>
+          db.paymentRecord.delete({ where: { id: paymentId } }).then(() => { results.paymentsDeleted++; }).catch(() => {})
+        ));
+      }
+    }
+
+    // ─── Delete auto-created companies (only if empty) ───
+    if (importEntry.companyIds && importEntry.companyIds.length > 0) {
+      for (const companyId of importEntry.companyIds) {
+        try {
+          const remainingShifts = await db.shift.count({ where: { companyId } });
+          const remainingPayments = await db.paymentRecord.count({ where: { companyId } });
+
+          if (remainingShifts === 0 && remainingPayments === 0) {
+            await db.company.delete({ where: { id: companyId } });
+            results.companiesDeleted++;
+          }
+        } catch (e) {
+          console.warn(`[IMPORT REVERSE] Company ${companyId} not found or already deleted`);
+        }
       }
     }
 

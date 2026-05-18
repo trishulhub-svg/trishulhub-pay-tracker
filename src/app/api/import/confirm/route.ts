@@ -5,6 +5,21 @@ import { getSession } from '@/lib/session';
 // Allow up to 60s for large imports on Vercel
 export const maxDuration = 60;
 
+// Calculate totalHours from startTime/endTime/breakMinutes
+function calcTotalHours(startTime: string, endTime: string, breakMinutes: number): number {
+  try {
+    const [sh, sm] = startTime.split(':').map(Number);
+    const [eh, em] = endTime.split(':').map(Number);
+    let totalMinutes = (eh * 60 + em) - (sh * 60 + sm);
+    if (totalMinutes < 0) totalMinutes += 24 * 60; // overnight shift
+    totalMinutes -= breakMinutes;
+    if (totalMinutes < 0) totalMinutes = 0;
+    return Math.round((totalMinutes / 60) * 100) / 100;
+  } catch {
+    return 0;
+  }
+}
+
 // POST /api/import/confirm — Save imported data after user review
 export async function POST(request: NextRequest) {
   try {
@@ -32,7 +47,9 @@ export async function POST(request: NextRequest) {
 
     const results = {
       shiftsCreated: 0,
+      shiftsSkipped: 0,
       paymentsCreated: 0,
+      paymentsSkipped: 0,
       companiesCreated: 0,
       errors: [] as string[],
       importId: '' as string,
@@ -79,19 +96,51 @@ export async function POST(request: NextRequest) {
       ? [...companyMap.values()][0]
       : null;
 
+    // ─── Fetch existing shift keys for dedup: userId + companyId + date ───
+    const existingShifts = await db.shift.findMany({
+      where: { userId: user.id },
+    });
+    const existingShiftKeys = new Set<string>();
+    for (const s of existingShifts) {
+      existingShiftKeys.add(`${s.userId}:${s.companyId}:${s.date}`);
+    }
+
+    // ─── Fetch existing payment keys for dedup: userId + companyId + month + year ───
+    const existingPayments = await db.paymentRecord.findMany({
+      where: { userId: user.id },
+    });
+    const existingPaymentKeys = new Set<string>();
+    for (const p of existingPayments) {
+      existingPaymentKeys.add(`${p.userId}:${p.companyId}:${p.month}:${p.year}`);
+    }
+
     // ─── Batch import shifts ───
     if (shifts && Array.isArray(shifts) && shifts.length > 0) {
-      // Pre-validate: pair each valid shift with its pre-generated ID
       const validShifts: { id: string; src: any }[] = [];
+
       for (const shift of shifts) {
         const companyId = shift.companyId || (shift.companyName ? companyMap.get(shift.companyName.toLowerCase()) : null) || fallbackCompanyId;
         if (!companyId) {
           results.errors.push(`Shift on ${shift.date}: No matching company — you have no companies yet. Please create a company first.`);
           continue;
         }
+
+        // Dedup: skip if a shift with same userId + companyId + date already exists
+        const dedupKey = `${user.id}:${companyId}:${shift.date}`;
+        if (existingShiftKeys.has(dedupKey)) {
+          results.shiftsSkipped++;
+          continue;
+        }
+
+        // Auto-calculate totalHours from start/end time if not explicitly provided
+        let totalHours = shift.totalHours || 0;
+        if (!totalHours && shift.startTime && shift.endTime) {
+          totalHours = calcTotalHours(shift.startTime, shift.endTime, shift.breakMinutes || 0);
+        }
+
         validShifts.push({
           id: 'c' + Date.now().toString(36) + Math.random().toString(36).substring(2, 8) + Math.random().toString(36).substring(2, 6),
-          src: { ...shift, _resolvedCompanyId: companyId },
+          src: { ...shift, _resolvedCompanyId: companyId, _resolvedTotalHours: totalHours },
         });
       }
 
@@ -110,7 +159,7 @@ export async function POST(request: NextRequest) {
               src.startTime || '09:00',
               src.endTime || '17:00',
               src.breakMinutes || 0,
-              src.totalHours || 0,
+              src._resolvedTotalHours,
               src.shiftType || 'REGULAR',
               src.payRate || 0,
               src.notes || null,
@@ -124,14 +173,12 @@ export async function POST(request: NextRequest) {
           const tursoClient = getTursoClientIfAvailable();
 
           if (tursoClient) {
-            // Turso: single batch INSERT — reduces N round-trips to 1
             await tursoClient.execute({
               sql: `INSERT INTO Shift (id, userId, companyId, date, startTime, endTime, breakMinutes, totalHours, shiftType, payRate, notes, client, createdAt, updatedAt)
                     VALUES ${placeholders}`,
               args: values,
             });
           } else {
-            // Local SQLite: parallel ORM creates
             await Promise.all(validShifts.map(({ src }) =>
               db.shift.create({
                 data: {
@@ -141,7 +188,7 @@ export async function POST(request: NextRequest) {
                   startTime: src.startTime || '09:00',
                   endTime: src.endTime || '17:00',
                   breakMinutes: src.breakMinutes || 0,
-                  totalHours: src.totalHours || 0,
+                  totalHours: src._resolvedTotalHours,
                   shiftType: src.shiftType || 'REGULAR',
                   payRate: src.payRate || 0,
                   notes: src.notes || null,
@@ -157,7 +204,6 @@ export async function POST(request: NextRequest) {
           results.shiftsCreated += validShifts.length;
         } catch (e) {
           console.error('[IMPORT] Batch shift insert failed, falling back to sequential:', e);
-          // Graceful fallback to sequential
           for (const { src } of validShifts) {
             try {
               const created = await db.shift.create({
@@ -168,7 +214,7 @@ export async function POST(request: NextRequest) {
                   startTime: src.startTime || '09:00',
                   endTime: src.endTime || '17:00',
                   breakMinutes: src.breakMinutes || 0,
-                  totalHours: src.totalHours || 0,
+                  totalHours: src._resolvedTotalHours,
                   shiftType: src.shiftType || 'REGULAR',
                   payRate: src.payRate || 0,
                   notes: src.notes || null,
@@ -188,15 +234,26 @@ export async function POST(request: NextRequest) {
     // ─── Batch import payment records ───
     if (payments && Array.isArray(payments) && payments.length > 0) {
       const validPayments: { id: string; src: any }[] = [];
+
       for (const payment of payments) {
         const companyId = payment.companyId || (payment.companyName ? companyMap.get(payment.companyName.toLowerCase()) : null) || fallbackCompanyId;
         if (!companyId) {
           results.errors.push(`Payment ${payment.month}/${payment.year}: No matching company — you have no companies yet. Please create a company first.`);
           continue;
         }
+
+        // Dedup: skip if a payment with same userId + companyId + month + year already exists
+        const month = payment.month || new Date().getMonth() + 1;
+        const year = payment.year || new Date().getFullYear();
+        const dedupKey = `${user.id}:${companyId}:${month}:${year}`;
+        if (existingPaymentKeys.has(dedupKey)) {
+          results.paymentsSkipped++;
+          continue;
+        }
+
         validPayments.push({
           id: 'c' + Date.now().toString(36) + Math.random().toString(36).substring(2, 8) + Math.random().toString(36).substring(2, 6),
-          src: { ...payment, _resolvedCompanyId: companyId, _resolvedMonth: payment.month || new Date().getMonth() + 1, _resolvedYear: payment.year || new Date().getFullYear() },
+          src: { ...payment, _resolvedCompanyId: companyId, _resolvedMonth: month, _resolvedYear: year },
         });
       }
 
@@ -309,7 +366,15 @@ export async function POST(request: NextRequest) {
       console.error('[IMPORT] Failed to create import log:', logErr);
     }
 
-    console.log(`[IMPORT] User ${user.email} imported ${results.shiftsCreated} shifts, ${results.paymentsCreated} payments, ${results.companiesCreated} companies (log: ${results.importId})`);
+    const msgParts = [
+      `${results.shiftsCreated} shifts`,
+      results.shiftsSkipped > 0 ? `${results.shiftsSkipped} shifts skipped (duplicates)` : null,
+      `${results.paymentsCreated} payments`,
+      results.paymentsSkipped > 0 ? `${results.paymentsSkipped} payments skipped (duplicates)` : null,
+      `${results.companiesCreated} companies`,
+    ].filter(Boolean).join(', ');
+
+    console.log(`[IMPORT] User ${user.email} imported ${msgParts} (log: ${results.importId})`);
 
     return NextResponse.json({
       success: true,
