@@ -26,6 +26,11 @@ const ALL_SETTING_KEYS = [...BREVO_SETTING_KEYS, ...AI_SETTING_KEYS];
 const SENSITIVE_KEYS = new Set(['BREVO_API_KEY', 'ZAI_API_KEY']);
 
 // SET-007: Rate limiter for PUT /api/admin/settings
+// SET-017: NOTE — in-memory Map resets on Vercel serverless cold starts.
+// This is acceptable because: (1) settings endpoint is admin-only, (2) cold starts
+// are rate-limited by Vercel's own infrastructure, (3) real abuse would need sustained
+// requests which the in-memory limiter catches within a single instance lifetime.
+// For a production-grade solution, use Upstash Redis or a DB-backed rate limit table.
 const settingsUpdateLog = new Map<string, { count: number; windowStart: number }>();
 const MAX_SETTINGS_UPDATES = 5;
 const SETTINGS_UPDATE_WINDOW_MS = 60 * 1000; // 1 minute
@@ -39,6 +44,20 @@ function isSettingsRateLimited(adminEmail: string): boolean {
   }
   entry.count++;
   return entry.count > MAX_SETTINGS_UPDATES;
+}
+
+// SET-017: Track recent update timestamps across the rate limit window for stricter enforcement
+const recentUpdateTimestamps: string[] = [];
+const MAX_GLOBAL_UPDATES_PER_MINUTE = 10;
+
+function isGlobalRateLimited(): boolean {
+  const now = Date.now();
+  const windowStart = now - SETTINGS_UPDATE_WINDOW_MS;
+  // Purge old entries
+  while (recentUpdateTimestamps.length > 0 && parseInt(recentUpdateTimestamps[0]) < windowStart) {
+    recentUpdateTimestamps.shift();
+  }
+  return recentUpdateTimestamps.length >= MAX_GLOBAL_UPDATES_PER_MINUTE;
 }
 
 function maskValue(key: string, value: string): string {
@@ -87,12 +106,28 @@ export async function GET() {
   }
 }
 
+// SET-022: CSRF defense-in-depth — check Origin header matches expected host
+// Next.js SameSite=Lax cookies already prevent most CSRF; this adds an explicit check
+// for state-changing admin endpoints (PUT/POST).
+function isRequestOriginValid(request: Request): boolean {
+  const origin = request.headers.get('origin');
+  const referer = request.headers.get('referer');
+  // If neither header is present (e.g., server-to-server), allow (session cookie required anyway)
+  if (!origin && !referer) return true;
+  const allowedPatterns = [/^https?:\/\/localhost/, /^https?:\/\/127\.0\.0\.1/, /^https?:\/\/.*\.vercel\.app$/, /^https?:\/\/.*\.trishulhub\.com$/];
+  const check = (url: string | null) => url ? allowedPatterns.some(p => p.test(url)) : true;
+  return check(origin) && check(referer);
+}
+
 // SET-016: POST /api/admin/settings — test AI API key with a minimal completion call
 export async function POST(request: Request) {
   try {
     const user = await getSession();
     if (!user || user.role !== 'ADMIN') {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+    }
+    if (!isRequestOriginValid(request)) {
+      return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 });
     }
 
     // Read settings to get the API key (DB > env > fallback)
@@ -153,14 +188,18 @@ export async function PUT(request: Request) {
     if (!user || user.role !== 'ADMIN') {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
+    if (!isRequestOriginValid(request)) {
+      return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 });
+    }
 
-    // SET-007: Rate limit
-    if (isSettingsRateLimited(user.email)) {
+    // SET-007 + SET-017: Per-user + global rate limit
+    if (isSettingsRateLimited(user.email) || isGlobalRateLimited()) {
       return NextResponse.json(
         { error: 'Too many settings updates. Please wait a minute.' },
         { status: 429 }
       );
     }
+    recentUpdateTimestamps.push(String(Date.now()));
 
     const body = await request.json();
     const { settings } = body as { settings: Record<string, string> };
