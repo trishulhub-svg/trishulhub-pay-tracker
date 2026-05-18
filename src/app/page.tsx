@@ -1668,12 +1668,11 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
     refetch();
   };
 
-  // DASH-010: Calculate month-over-month % change for stat cards
+  // DASH-005: Calculate month-over-month % change — uses actual field values, not totalExpected
   const calcChange = (current: number, previous: number): number | null => {
-    if (!data?.comparison?.current && !data?.comparison?.previous) return null;
-    if (!data?.comparison?.current || data.comparison.current.totalExpected === 0) return null;
-    if (!data?.comparison?.previous || data.comparison.previous.totalExpected === 0) return current > 0 ? 100 : null;
-    return ((current - previous) / Math.max(previous, 0.01)) * 100;
+    if (current === 0 && previous === 0) return null;
+    if (previous === 0) return current > 0 ? 100 : null;
+    return ((current - previous) / Math.abs(previous)) * 100;
   };
 
   // DASH-001: Separate loading from error — !data after load means API failure

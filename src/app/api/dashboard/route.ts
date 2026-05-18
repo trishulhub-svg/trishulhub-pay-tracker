@@ -12,6 +12,14 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const companyId = searchParams.get('companyId');
 
+    // DASH-002: Validate companyId belongs to the authenticated user
+    if (companyId) {
+      const company = await db.company.findUnique({ where: { id: companyId } });
+      if (!company || company.userId !== user.id) {
+        return NextResponse.json({ error: 'Invalid company filter' }, { status: 400 });
+      }
+    }
+
     // Current month boundaries
     const now = new Date();
     const currentMonth = now.getMonth() + 1;
@@ -78,14 +86,22 @@ export async function GET(request: NextRequest) {
             LIMIT 5`,
           args: [user.id, ...companyArgs],
         }),
-        // 3. Current + previous month records for comparison
+        // 3. DASH-010: Aggregated totals for current + previous month comparison
+        // (was: fetch ALL rows + .find() first match — wrong for multi-company users)
         tursoClient.execute({
-          sql: `SELECT pr.*, c.name as "companyName", c.id as "companyId2"
-            FROM PaymentRecord pr
-            JOIN Company c ON pr.companyId = c.id
-            WHERE pr.userId = ?
-              AND ((pr.month = ? AND pr.year = ?) OR (pr.month = ? AND pr.year = ?))${companyFilter}
-            ORDER BY pr.year DESC, pr.month DESC`,
+          sql: `SELECT
+            pr.month, pr.year,
+            COALESCE(SUM(pr.totalExpected), 0) as totalExpected,
+            COALESCE(SUM(pr.totalReceived), 0) as totalReceived,
+            COALESCE(SUM(pr.totalHMRC), 0) as totalHMRC,
+            COALESCE(SUM(pr.totalDue), 0) as totalDue,
+            COALESCE(SUM(pr.workedHours), 0) as workedHours,
+            COUNT(*) as recordCount
+          FROM PaymentRecord pr
+          WHERE pr.userId = ?
+            AND ((pr.month = ? AND pr.year = ?) OR (pr.month = ? AND pr.year = ?))${companyFilter}
+          GROUP BY pr.month, pr.year
+          ORDER BY pr.year DESC, pr.month DESC`,
           args: [user.id, currentMonth, currentYear, prevMonth, prevYear, ...companyArgs],
         }),
         // 4. Per-company stats via GROUP BY (was O(n*m) JS filtering — DASH-008)
@@ -141,8 +157,8 @@ export async function GET(request: NextRequest) {
         company: { id: row.companyId, name: row.companyName },
       }));
 
-      // Parse comparison
-      const compRecords = compRes.rows.map((row: any) => ({
+      // DASH-010: Parse aggregated comparison rows (one per month)
+      const compRows = compRes.rows.map((row: any) => ({
         month: Number(row.month),
         year: Number(row.year),
         totalExpected: Number(row.totalExpected || 0),
@@ -150,13 +166,11 @@ export async function GET(request: NextRequest) {
         totalHMRC: Number(row.totalHMRC || 0),
         totalDue: Number(row.totalDue || 0),
         workedHours: Number(row.workedHours || 0),
-        status: row.status,
-        companyId: row.companyId,
-        company: { id: row.companyId, name: row.companyName },
+        recordCount: Number(row.recordCount || 0),
       }));
       const comparison = {
-        current: compRecords.find((r: any) => r.month === currentMonth && r.year === currentYear) || null,
-        previous: compRecords.find((r: any) => r.month === prevMonth && r.year === prevYear) || null,
+        current: compRows.find((r: any) => r.month === currentMonth && r.year === currentYear) || null,
+        previous: compRows.find((r: any) => r.month === prevMonth && r.year === prevYear) || null,
       };
 
       // Parse company stats
@@ -225,9 +239,21 @@ export async function GET(request: NextRequest) {
       );
 
       const recentRecords = allRecords.slice(0, 5);
+
+      // DASH-010: Aggregate comparison by month (was: .find() returns first row only)
+      const currentRecords = allRecords.filter((r: any) => Number(r.month) === currentMonth && Number(r.year) === currentYear);
+      const previousRecords = allRecords.filter((r: any) => Number(r.month) === prevMonth && Number(r.year) === prevYear);
+      const aggregateRecords = (recs: any[]) => ({
+        totalExpected: recs.reduce((s: number, r: any) => s + Number(r.totalExpected || 0), 0),
+        totalReceived: recs.reduce((s: number, r: any) => s + Number(r.totalReceived || 0), 0),
+        totalHMRC: recs.reduce((s: number, r: any) => s + Number(r.totalHMRC || 0), 0),
+        totalDue: recs.reduce((s: number, r: any) => s + Number(r.totalDue || 0), 0),
+        workedHours: recs.reduce((s: number, r: any) => s + Number(r.workedHours || 0), 0),
+        recordCount: recs.length,
+      });
       const comparison = {
-        current: allRecords.find((r: any) => Number(r.month) === currentMonth && Number(r.year) === currentYear) || null,
-        previous: allRecords.find((r: any) => Number(r.month) === prevMonth && Number(r.year) === prevYear) || null,
+        current: currentRecords.length > 0 ? { month: currentMonth, year: currentYear, ...aggregateRecords(currentRecords) } : null,
+        previous: previousRecords.length > 0 ? { month: prevMonth, year: prevYear, ...aggregateRecords(previousRecords) } : null,
       };
 
       // Single-pass company stats map (was O(n*m) — DASH-008)
