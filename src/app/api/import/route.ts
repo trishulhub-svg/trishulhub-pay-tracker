@@ -4,6 +4,7 @@ import { getSession } from '@/lib/session';
 import Papa from 'papaparse';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import mammoth from 'mammoth';
+import { calcTotalHours } from '@/lib/import-utils';
 
 // Maximum file size: 5MB
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
@@ -212,20 +213,10 @@ function mapRowToShift(row: Record<string, string>, companies: any[]): any | nul
   const companyId = findCompanyMatch(companyName, companies);
   const breakMinutesNum = breakMinutesRaw ? parseNumber(breakMinutesRaw) : 0;
 
-  // Auto-calculate totalHours from start/end time when not explicitly provided
+  // IMP-012: Use shared calcTotalHours from lib/import-utils
   let totalHours = totalHoursRaw ? parseNumber(totalHoursRaw) : 0;
   if (!totalHours && startTimeRaw && endTimeRaw) {
-    try {
-      const st = normalizeTime(startTimeRaw);
-      const et = normalizeTime(endTimeRaw);
-      const [sh, sm] = st.split(':').map(Number);
-      const [eh, em] = et.split(':').map(Number);
-      let mins = (eh * 60 + em) - (sh * 60 + sm);
-      if (mins < 0) mins += 24 * 60; // overnight shift
-      mins -= breakMinutesNum;
-      if (mins < 0) mins = 0;
-      totalHours = Math.round((mins / 60) * 100) / 100;
-    } catch { /* keep 0 */ }
+    totalHours = calcTotalHours(normalizeTime(startTimeRaw), normalizeTime(endTimeRaw), breakMinutesNum);
   }
 
   return {

@@ -1,35 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { calcTotalHours } from '@/lib/import-utils';
 
 // Allow up to 60s for large imports on Vercel
 export const maxDuration = 60;
 
-// Calculate totalHours from startTime/endTime/breakMinutes
-function calcTotalHours(startTime: string, endTime: string, breakMinutes: number): number {
-  try {
-    const [sh, sm] = startTime.split(':').map(Number);
-    const [eh, em] = endTime.split(':').map(Number);
-    let totalMinutes = (eh * 60 + em) - (sh * 60 + sm);
-    if (totalMinutes < 0) totalMinutes += 24 * 60; // overnight shift
-    totalMinutes -= breakMinutes;
-    if (totalMinutes < 0) totalMinutes = 0;
-    return Math.round((totalMinutes / 60) * 100) / 100;
-  } catch {
-    return 0;
-  }
-}
-
-// IMP-002: Use crypto.randomUUID() for collision-free IDs
+// Generate collision-free unique IDs
 function generateUniqueId(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
   }
-  // Fallback for environments without crypto.randomUUID
   return 'c' + Date.now().toString(36) + Math.random().toString(36).substring(2, 8) + Math.random().toString(36).substring(2, 6);
 }
 
-// IMP-003: Verify batch-inserted rows actually exist in DB
+// Verify batch-inserted rows actually exist in DB
 async function verifyInsertedIds(tursoClient: any, ids: string[], table: string): Promise<string[]> {
   if (ids.length === 0) return [];
   try {
@@ -41,7 +26,6 @@ async function verifyInsertedIds(tursoClient: any, ids: string[], table: string)
     const foundIds = new Set(result.rows.map((r: any) => r.id));
     return ids.filter(id => foundIds.has(id));
   } catch {
-    // If verification fails, assume all were inserted (optimistic)
     return ids;
   }
 }
@@ -85,7 +69,7 @@ export async function POST(request: NextRequest) {
     const createdPaymentIds: string[] = [];
     const createdCompanyIds: string[] = [];
 
-    // IMP-009: Import getTursoClientIfAvailable once at the top
+    // Import getTursoClientIfAvailable once at the top
     const { getTursoClientIfAvailable } = await import('@/lib/db');
     const tursoClient = getTursoClientIfAvailable();
 
@@ -126,22 +110,54 @@ export async function POST(request: NextRequest) {
       ? [...companyMap.values()][0]
       : null;
 
-    // ─── Fetch existing shift keys for dedup: userId + companyId + date ───
-    const existingShifts = await db.shift.findMany({
-      where: { userId: user.id },
-    });
+    // ─── IMP-001: Efficient dedup — only fetch keys we need, not full rows ───
     const existingShiftKeys = new Set<string>();
-    for (const s of existingShifts) {
-      existingShiftKeys.add(`${s.userId}:${s.companyId}:${s.date}`);
+    if (tursoClient && shifts && shifts.length > 0) {
+      // Direct SQL: only select date, companyId, shiftType — not the full row
+      try {
+        const r = await tursoClient.execute({
+          sql: 'SELECT companyId, date, shiftType FROM Shift WHERE userId = ?',
+          args: [user.id],
+        });
+        for (const row of r.rows) {
+          existingShiftKeys.add(`${user.id}:${row.companyId}:${row.date}:${row.shiftType || 'REGULAR'}`);
+        }
+      } catch {
+        // Fallback to ORM if direct SQL fails
+        const existingShifts = await db.shift.findMany({ where: { userId: user.id } });
+        for (const s of existingShifts) {
+          existingShiftKeys.add(`${s.userId}:${s.companyId}:${s.date}:${s.shiftType || 'REGULAR'}`);
+        }
+      }
+    } else if (shifts && shifts.length > 0) {
+      const existingShifts = await db.shift.findMany({ where: { userId: user.id } });
+      for (const s of existingShifts) {
+        existingShiftKeys.add(`${s.userId}:${s.companyId}:${s.date}:${s.shiftType || 'REGULAR'}`);
+      }
     }
 
-    // ─── Fetch existing payment keys for dedup: userId + companyId + month + year ───
-    const existingPayments = await db.paymentRecord.findMany({
-      where: { userId: user.id },
-    });
+    // ─── Efficient payment dedup ───
     const existingPaymentKeys = new Set<string>();
-    for (const p of existingPayments) {
-      existingPaymentKeys.add(`${p.userId}:${p.companyId}:${p.month}:${p.year}`);
+    if (tursoClient && payments && payments.length > 0) {
+      try {
+        const r = await tursoClient.execute({
+          sql: 'SELECT companyId, month, year FROM PaymentRecord WHERE userId = ?',
+          args: [user.id],
+        });
+        for (const row of r.rows) {
+          existingPaymentKeys.add(`${user.id}:${row.companyId}:${row.month}:${row.year}`);
+        }
+      } catch {
+        const existingPayments = await db.paymentRecord.findMany({ where: { userId: user.id } });
+        for (const p of existingPayments) {
+          existingPaymentKeys.add(`${p.userId}:${p.companyId}:${p.month}:${p.year}`);
+        }
+      }
+    } else if (payments && payments.length > 0) {
+      const existingPayments = await db.paymentRecord.findMany({ where: { userId: user.id } });
+      for (const p of existingPayments) {
+        existingPaymentKeys.add(`${p.userId}:${p.companyId}:${p.month}:${p.year}`);
+      }
     }
 
     // ─── Batch import shifts ───
@@ -155,23 +171,23 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        // Dedup: skip if a shift with same userId + companyId + date already exists
-        const dedupKey = `${user.id}:${companyId}:${shift.date}`;
+        // IMP-005: Dedup key now includes shiftType — allows split shifts on same day
+        const shiftType = shift.shiftType || 'REGULAR';
+        const dedupKey = `${user.id}:${companyId}:${shift.date}:${shiftType}`;
         if (existingShiftKeys.has(dedupKey)) {
           results.shiftsSkipped++;
           continue;
         }
 
-        // Auto-calculate totalHours from start/end time if not explicitly provided
+        // IMP-012: Use shared calcTotalHours from lib/import-utils
         let totalHours = shift.totalHours || 0;
         if (!totalHours && shift.startTime && shift.endTime) {
           totalHours = calcTotalHours(shift.startTime, shift.endTime, shift.breakMinutes || 0);
         }
 
-        // IMP-002: Use crypto.randomUUID() for guaranteed unique IDs
         validShifts.push({
           id: generateUniqueId(),
-          src: { ...shift, _resolvedCompanyId: companyId, _resolvedTotalHours: totalHours },
+          src: { ...shift, _resolvedCompanyId: companyId, _resolvedTotalHours: totalHours, _resolvedShiftType: shiftType },
         });
       }
 
@@ -183,32 +199,21 @@ export async function POST(request: NextRequest) {
 
           for (const { id, src } of validShifts) {
             values.push(
-              id,
-              user.id,
-              src._resolvedCompanyId,
-              src.date,
-              src.startTime || '09:00',
-              src.endTime || '17:00',
-              src.breakMinutes || 0,
-              src._resolvedTotalHours,
-              src.shiftType || 'REGULAR',
-              src.payRate || 0,
-              src.notes || null,
-              src.client || null,
-              now,
-              now,
+              id, user.id, src._resolvedCompanyId, src.date,
+              src.startTime || '09:00', src.endTime || '17:00',
+              src.breakMinutes || 0, src._resolvedTotalHours,
+              src._resolvedShiftType, src.payRate || 0,
+              src.notes || null, src.client || null, now, now,
             );
           }
 
           if (tursoClient) {
-            // Turso: single batch INSERT — reduces N round-trips to 1
             await tursoClient.execute({
               sql: `INSERT INTO Shift (id, userId, companyId, date, startTime, endTime, breakMinutes, totalHours, shiftType, payRate, notes, client, createdAt, updatedAt)
                     VALUES ${placeholders}`,
               args: values,
             });
 
-            // IMP-003: Verify which rows actually made it into the DB
             const verifiedIds = await verifyInsertedIds(tursoClient, validShifts.map(v => v.id), 'Shift');
             if (verifiedIds.length < validShifts.length) {
               const missing = validShifts.length - verifiedIds.length;
@@ -217,21 +222,14 @@ export async function POST(request: NextRequest) {
             verifiedIds.forEach(id => createdShiftIds.push(id));
             results.shiftsCreated += verifiedIds.length;
           } else {
-            // Local SQLite: parallel ORM creates
             const created = await Promise.allSettled(validShifts.map(({ src }) =>
               db.shift.create({
                 data: {
-                  userId: user.id,
-                  companyId: src._resolvedCompanyId,
-                  date: src.date,
-                  startTime: src.startTime || '09:00',
-                  endTime: src.endTime || '17:00',
-                  breakMinutes: src.breakMinutes || 0,
-                  totalHours: src._resolvedTotalHours,
-                  shiftType: src.shiftType || 'REGULAR',
-                  payRate: src.payRate || 0,
-                  notes: src.notes || null,
-                  client: src.client || null,
+                  userId: user.id, companyId: src._resolvedCompanyId,
+                  date: src.date, startTime: src.startTime || '09:00',
+                  endTime: src.endTime || '17:00', breakMinutes: src.breakMinutes || 0,
+                  totalHours: src._resolvedTotalHours, shiftType: src._resolvedShiftType,
+                  payRate: src.payRate || 0, notes: src.notes || null, client: src.client || null,
                 },
               })
             ));
@@ -246,22 +244,15 @@ export async function POST(request: NextRequest) {
           }
         } catch (e) {
           console.error('[IMPORT] Batch shift insert failed, falling back to sequential:', e);
-          // Graceful fallback to sequential
           for (const { id, src } of validShifts) {
             try {
               const created = await db.shift.create({
                 data: {
-                  userId: user.id,
-                  companyId: src._resolvedCompanyId,
-                  date: src.date,
-                  startTime: src.startTime || '09:00',
-                  endTime: src.endTime || '17:00',
-                  breakMinutes: src.breakMinutes || 0,
-                  totalHours: src._resolvedTotalHours,
-                  shiftType: src.shiftType || 'REGULAR',
-                  payRate: src.payRate || 0,
-                  notes: src.notes || null,
-                  client: src.client || null,
+                  userId: user.id, companyId: src._resolvedCompanyId,
+                  date: src.date, startTime: src.startTime || '09:00',
+                  endTime: src.endTime || '17:00', breakMinutes: src.breakMinutes || 0,
+                  totalHours: src._resolvedTotalHours, shiftType: src._resolvedShiftType,
+                  payRate: src.payRate || 0, notes: src.notes || null, client: src.client || null,
                 },
               });
               createdShiftIds.push(created.id);
@@ -285,7 +276,6 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        // Dedup: skip if a payment with same userId + companyId + month + year already exists
         const month = payment.month || new Date().getMonth() + 1;
         const year = payment.year || new Date().getFullYear();
         const dedupKey = `${user.id}:${companyId}:${month}:${year}`;
@@ -294,7 +284,6 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        // IMP-002: Use crypto.randomUUID()
         validPayments.push({
           id: generateUniqueId(),
           src: { ...payment, _resolvedCompanyId: companyId, _resolvedMonth: month, _resolvedYear: year },
@@ -309,20 +298,10 @@ export async function POST(request: NextRequest) {
 
           for (const { id, src } of validPayments) {
             values.push(
-              id,
-              user.id,
-              src._resolvedCompanyId,
-              src._resolvedMonth,
-              src._resolvedYear,
-              src.totalExpected || 0,
-              src.totalReceived || 0,
-              src.totalHMRC || 0,
-              src.totalDue || 0,
-              src.workedHours || 0,
-              'PENDING',
-              src.notes || null,
-              now,
-              now,
+              id, user.id, src._resolvedCompanyId, src._resolvedMonth, src._resolvedYear,
+              src.totalExpected || 0, src.totalReceived || 0, src.totalHMRC || 0,
+              src.totalDue || 0, src.workedHours || 0, 'PENDING',
+              src.notes || null, now, now,
             );
           }
 
@@ -333,7 +312,6 @@ export async function POST(request: NextRequest) {
               args: values,
             });
 
-            // IMP-003: Verify rows
             const verifiedIds = await verifyInsertedIds(tursoClient, validPayments.map(v => v.id), 'PaymentRecord');
             if (verifiedIds.length < validPayments.length) {
               const missing = validPayments.length - verifiedIds.length;
@@ -345,16 +323,11 @@ export async function POST(request: NextRequest) {
             const created = await Promise.allSettled(validPayments.map(({ src }) =>
               db.paymentRecord.create({
                 data: {
-                  userId: user.id,
-                  companyId: src._resolvedCompanyId,
-                  month: src._resolvedMonth,
-                  year: src._resolvedYear,
-                  totalExpected: src.totalExpected || 0,
-                  totalReceived: src.totalReceived || 0,
-                  totalHMRC: src.totalHMRC || 0,
-                  totalDue: src.totalDue || 0,
-                  workedHours: src.workedHours || 0,
-                  status: 'PENDING',
+                  userId: user.id, companyId: src._resolvedCompanyId,
+                  month: src._resolvedMonth, year: src._resolvedYear,
+                  totalExpected: src.totalExpected || 0, totalReceived: src.totalReceived || 0,
+                  totalHMRC: src.totalHMRC || 0, totalDue: src.totalDue || 0,
+                  workedHours: src.workedHours || 0, status: 'PENDING',
                   notes: src.notes || null,
                 },
               })
@@ -374,16 +347,11 @@ export async function POST(request: NextRequest) {
             try {
               const created = await db.paymentRecord.create({
                 data: {
-                  userId: user.id,
-                  companyId: src._resolvedCompanyId,
-                  month: src._resolvedMonth,
-                  year: src._resolvedYear,
-                  totalExpected: src.totalExpected || 0,
-                  totalReceived: src.totalReceived || 0,
-                  totalHMRC: src.totalHMRC || 0,
-                  totalDue: src.totalDue || 0,
-                  workedHours: src.workedHours || 0,
-                  status: 'PENDING',
+                  userId: user.id, companyId: src._resolvedCompanyId,
+                  month: src._resolvedMonth, year: src._resolvedYear,
+                  totalExpected: src.totalExpected || 0, totalReceived: src.totalReceived || 0,
+                  totalHMRC: src.totalHMRC || 0, totalDue: src.totalDue || 0,
+                  workedHours: src.workedHours || 0, status: 'PENDING',
                   notes: src.notes || null,
                 },
               });
@@ -427,7 +395,8 @@ export async function POST(request: NextRequest) {
       `${results.companiesCreated} companies`,
     ].filter(Boolean).join(', ');
 
-    console.log(`[IMPORT] User ${user.email} imported ${msgParts} (log: ${results.importId})`);
+    // IMP-014: Use userId instead of email in logs
+    console.log(`[IMPORT] User ${user.id} imported ${msgParts} (log: ${results.importId})`);
 
     return NextResponse.json({
       success: true,

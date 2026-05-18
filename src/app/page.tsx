@@ -5649,7 +5649,15 @@ function ImportView({ user }: { user: SessionUser }) {
         clearTimeout(timeoutId);
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save imported data');
+      // IMP-010: Distinguish timeout vs server error, offer retry guidance
+      const isTimeout = err instanceof DOMException && err.name === 'AbortError';
+      const msg = isTimeout
+        ? 'Import timed out. Your data may have been partially saved — check import history before retrying.'
+        : (err instanceof Error ? err.message : 'Failed to save imported data');
+      toast.error(msg, {
+        action: isTimeout ? { label: 'View History', onClick: () => { setActiveTab('history'); fetchImportLogs(); } } : undefined,
+        duration: 8000,
+      });
     } finally {
       setConfirming(false);
     }
@@ -5950,6 +5958,7 @@ function ImportView({ user }: { user: SessionUser }) {
                             <><Check className="h-4 w-4 mr-2" /> Confirm Import ({editedShifts.length + editedPayments.length} items)</>
                           )}
                         </Button>
+                        <p className="text-[10px] text-muted-foreground text-center mt-1">Duplicates are automatically skipped on import</p>
                       </div>
                     </CardContent>
                   </Card>

@@ -2,8 +2,36 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 
-// IMP-007: Allow up to 60s for cascade deletes on Vercel
+// Allow up to 60s for cascade deletes on Vercel
 export const maxDuration = 60;
+
+// IMP-006: Batch-find empty companies in one query
+async function findEmptyCompanyIds(tursoClient: any, companyIds: string[]): Promise<string[]> {
+  if (companyIds.length === 0) return [];
+  if (tursoClient) {
+    const placeholders = companyIds.map(() => '?').join(', ');
+    const r = await tursoClient.execute({
+      sql: `
+        SELECT c.id
+        FROM Company c
+        LEFT JOIN Shift s ON s.companyId = c.id
+        LEFT JOIN PaymentRecord pr ON pr.companyId = c.id
+        WHERE c.id IN (${placeholders})
+        GROUP BY c.id
+        HAVING COUNT(s.id) = 0 AND COUNT(pr.id) = 0
+      `,
+      args: companyIds,
+    });
+    return r.rows.map((row: any) => row.id);
+  }
+  const empty: string[] = [];
+  for (const companyId of companyIds) {
+    const rs = await db.shift.count({ where: { companyId } });
+    const rp = await db.paymentRecord.count({ where: { companyId } });
+    if (rs === 0 && rp === 0) empty.push(companyId);
+  }
+  return empty;
+}
 
 // DELETE /api/import/logs/[id] — Delete an import history entry
 export async function DELETE(
@@ -21,13 +49,16 @@ export async function DELETE(
 
     const { id } = await params;
 
-    // Find the import log entry
+    // IMP-013: Validate ID format
+    if (!id || typeof id !== 'string' || id.length < 10 || id.length > 100) {
+      return NextResponse.json({ error: 'Invalid import ID' }, { status: 400 });
+    }
+
     const importEntry = await db.importLog.findUnique({ where: { id } });
     if (!importEntry) {
       return NextResponse.json({ error: 'Import record not found' }, { status: 404 });
     }
 
-    // Verify ownership
     if (importEntry.userId !== user.id) {
       return NextResponse.json({ error: 'You can only delete your own import history' }, { status: 403 });
     }
@@ -37,7 +68,6 @@ export async function DELETE(
       const { getTursoClientIfAvailable } = await import('@/lib/db');
       const tursoClient = getTursoClientIfAvailable();
 
-      // Delete shifts
       if (importEntry.shiftIds && importEntry.shiftIds.length > 0) {
         if (tursoClient) {
           const placeholders = importEntry.shiftIds.map(() => '?').join(', ');
@@ -47,7 +77,6 @@ export async function DELETE(
         }
       }
 
-      // Delete payments
       if (importEntry.paymentIds && importEntry.paymentIds.length > 0) {
         if (tursoClient) {
           const placeholders = importEntry.paymentIds.map(() => '?').join(', ');
@@ -57,21 +86,13 @@ export async function DELETE(
         }
       }
 
-      // Delete auto-created companies (only if empty)
-      if (importEntry.companyIds && importEntry.companyIds.length > 0) {
-        for (const companyId of importEntry.companyIds) {
-          try {
-            const remainingShifts = await db.shift.count({ where: { companyId } });
-            const remainingPayments = await db.paymentRecord.count({ where: { companyId } });
-            if (remainingShifts === 0 && remainingPayments === 0) {
-              await db.company.delete({ where: { id: companyId } });
-            }
-          } catch {}
-        }
+      // IMP-006: Batch company empty check
+      const emptyCompanyIds = await findEmptyCompanyIds(tursoClient, importEntry.companyIds || []);
+      for (const companyId of emptyCompanyIds) {
+        try { await db.company.delete({ where: { id: companyId } }); } catch {}
       }
     }
 
-    // Delete the import log entry itself
     await db.importLog.delete({ where: { id } });
 
     return NextResponse.json({
