@@ -109,6 +109,15 @@ function toBool(val: any): boolean {
   return val === 1 || val === true
 }
 
+// IMP-019: Safe JSON parse with fallback for corrupted/truncated JSON in DB
+function safeJsonParse(val: any, fallback: any): any {
+  if (Array.isArray(val)) return val
+  if (typeof val === 'string') {
+    try { return JSON.parse(val) } catch { return fallback }
+  }
+  return fallback
+}
+
 // Helper to convert JS values for SQL parameters
 // - boolean → 0/1 (SQLite doesn't have native boolean)
 // - Date → ISO string (@libsql/client doesn't support Date objects)
@@ -262,9 +271,10 @@ function mapImportLogRow(row: any): any {
     companiesCreated: Number(row.companiesCreated || 0),
     reversed: toBool(row.reversed),
     // Parse JSON arrays stored as text
-    shiftIds: typeof row.shiftIds === 'string' ? JSON.parse(row.shiftIds) : row.shiftIds || [],
-    paymentIds: typeof row.paymentIds === 'string' ? JSON.parse(row.paymentIds) : row.paymentIds || [],
-    companyIds: typeof row.companyIds === 'string' ? JSON.parse(row.companyIds) : row.companyIds || [],
+    // IMP-019: Wrap JSON.parse in try/catch to handle corrupted JSON gracefully
+    shiftIds: safeJsonParse(row.shiftIds, []),
+    paymentIds: safeJsonParse(row.paymentIds, []),
+    companyIds: safeJsonParse(row.companyIds, []),
   }
 }
 

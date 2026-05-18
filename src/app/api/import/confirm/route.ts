@@ -14,6 +14,51 @@ function generateUniqueId(): string {
   return 'c' + Date.now().toString(36) + Math.random().toString(36).substring(2, 8) + Math.random().toString(36).substring(2, 6);
 }
 
+// IMP-018: Validate and sanitize shift fields before DB insert
+function validateShift(s: any): { valid: boolean; date?: string; errors: string[] } {
+  const errors: string[] = [];
+  if (!s.date || typeof s.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s.date)) {
+    errors.push(`Invalid date "${s.date}" — must be YYYY-MM-DD`);
+  }
+  if (s.shiftType && !['REGULAR', 'OVERTIME', 'HOLIDAY', 'SICK', 'UNPAID', 'ON_CALL'].includes(s.shiftType)) {
+    errors.push(`Invalid shiftType "${s.shiftType}" — using REGULAR`);
+  }
+  if (s.totalHours != null && (typeof s.totalHours !== 'number' || !Number.isFinite(s.totalHours) || s.totalHours < 0 || s.totalHours > 24)) {
+    errors.push(`Invalid totalHours ${s.totalHours} — clamping to 0-24`);
+  }
+  if (s.payRate != null && (typeof s.payRate !== 'number' || !Number.isFinite(s.payRate) || s.payRate < 0)) {
+    errors.push(`Invalid payRate ${s.payRate} — using 0`);
+  }
+  if (s.breakMinutes != null && (typeof s.breakMinutes !== 'number' || !Number.isFinite(s.breakMinutes) || s.breakMinutes < 0)) {
+    errors.push(`Invalid breakMinutes ${s.breakMinutes} — using 0`);
+  }
+  if (s.notes != null && typeof s.notes !== 'string') {
+    errors.push(`Invalid notes type — using null`);
+  }
+  return { valid: errors.length === 0, date: s.date, errors };
+}
+
+// IMP-018: Validate and sanitize payment fields before DB insert
+function validatePayment(p: any): { valid: boolean; label?: string; errors: string[] } {
+  const errors: string[] = [];
+  const label = `${p.month || '?'}/${p.year || '?'}`;
+  if (p.month != null && (typeof p.month !== 'number' || !Number.isFinite(p.month) || p.month < 1 || p.month > 12)) {
+    errors.push(`Payment ${label}: Invalid month ${p.month} — must be 1-12`);
+  }
+  if (p.year != null && (typeof p.year !== 'number' || !Number.isFinite(p.year) || p.year < 2000 || p.year > 2100)) {
+    errors.push(`Payment ${label}: Invalid year ${p.year} — must be 2000-2100`);
+  }
+  for (const field of ['totalExpected', 'totalReceived', 'totalHMRC', 'totalDue', 'workedHours'] as const) {
+    if (p[field] != null && (typeof p[field] !== 'number' || !Number.isFinite(p[field]) || p[field] < 0)) {
+      errors.push(`Payment ${label}: Invalid ${field} ${p[field]} — using 0`);
+    }
+  }
+  if (p.notes != null && typeof p.notes !== 'string') {
+    errors.push(`Payment ${label}: Invalid notes type — using null`);
+  }
+  return { valid: errors.length === 0, label, errors };
+}
+
 // Verify batch-inserted rows actually exist in DB
 async function verifyInsertedIds(tursoClient: any, ids: string[], table: string): Promise<string[]> {
   if (ids.length === 0) return [];
@@ -165,6 +210,16 @@ export async function POST(request: NextRequest) {
       const validShifts: { id: string; src: any }[] = [];
 
       for (const shift of shifts) {
+        // IMP-018: Validate each shift before processing
+        const validation = validateShift(shift);
+        if (!validation.valid) {
+          results.errors.push(...validation.errors);
+        }
+        // Reject shifts with completely invalid dates (can't dedup without a date)
+        if (!shift.date || typeof shift.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(shift.date)) {
+          continue;
+        }
+
         const companyId = shift.companyId || (shift.companyName ? companyMap.get(shift.companyName.toLowerCase()) : null) || fallbackCompanyId;
         if (!companyId) {
           results.errors.push(`Shift on ${shift.date}: No matching company — you have no companies yet. Please create a company first.`);
@@ -172,7 +227,7 @@ export async function POST(request: NextRequest) {
         }
 
         // IMP-005: Dedup key now includes shiftType — allows split shifts on same day
-        const shiftType = shift.shiftType || 'REGULAR';
+        const shiftType = ['REGULAR', 'OVERTIME', 'HOLIDAY', 'SICK', 'UNPAID', 'ON_CALL'].includes(shift.shiftType) ? shift.shiftType : 'REGULAR';
         const dedupKey = `${user.id}:${companyId}:${shift.date}:${shiftType}`;
         if (existingShiftKeys.has(dedupKey)) {
           results.shiftsSkipped++;
@@ -180,14 +235,26 @@ export async function POST(request: NextRequest) {
         }
 
         // IMP-012: Use shared calcTotalHours from lib/import-utils
-        let totalHours = shift.totalHours || 0;
+        // IMP-018: Clamp totalHours to 0-24
+        let totalHours = (typeof shift.totalHours === 'number' && Number.isFinite(shift.totalHours))
+          ? Math.max(0, Math.min(24, shift.totalHours))
+          : 0;
         if (!totalHours && shift.startTime && shift.endTime) {
           totalHours = calcTotalHours(shift.startTime, shift.endTime, shift.breakMinutes || 0);
         }
 
         validShifts.push({
           id: generateUniqueId(),
-          src: { ...shift, _resolvedCompanyId: companyId, _resolvedTotalHours: totalHours, _resolvedShiftType: shiftType },
+          src: {
+            ...shift,
+            _resolvedCompanyId: companyId,
+            _resolvedTotalHours: totalHours,
+            _resolvedShiftType: shiftType,
+            // IMP-018: Sanitize fields for DB insert
+            _payRate: (typeof shift.payRate === 'number' && Number.isFinite(shift.payRate) && shift.payRate >= 0) ? shift.payRate : 0,
+            _breakMinutes: (typeof shift.breakMinutes === 'number' && Number.isFinite(shift.breakMinutes) && shift.breakMinutes >= 0) ? Math.round(shift.breakMinutes) : 0,
+            _notes: typeof shift.notes === 'string' ? shift.notes : null,
+          },
         });
       }
 
@@ -201,9 +268,9 @@ export async function POST(request: NextRequest) {
             values.push(
               id, user.id, src._resolvedCompanyId, src.date,
               src.startTime || '09:00', src.endTime || '17:00',
-              src.breakMinutes || 0, src._resolvedTotalHours,
-              src._resolvedShiftType, src.payRate || 0,
-              src.notes || null, src.client || null, now, now,
+              src._breakMinutes, src._resolvedTotalHours,
+              src._resolvedShiftType, src._payRate,
+              src._notes, src.client || null, now, now,
             );
           }
 
@@ -227,9 +294,9 @@ export async function POST(request: NextRequest) {
                 data: {
                   userId: user.id, companyId: src._resolvedCompanyId,
                   date: src.date, startTime: src.startTime || '09:00',
-                  endTime: src.endTime || '17:00', breakMinutes: src.breakMinutes || 0,
+                  endTime: src.endTime || '17:00', breakMinutes: src._breakMinutes,
                   totalHours: src._resolvedTotalHours, shiftType: src._resolvedShiftType,
-                  payRate: src.payRate || 0, notes: src.notes || null, client: src.client || null,
+                  payRate: src._payRate, notes: src._notes, client: src.client || null,
                 },
               })
             ));
@@ -250,9 +317,9 @@ export async function POST(request: NextRequest) {
                 data: {
                   userId: user.id, companyId: src._resolvedCompanyId,
                   date: src.date, startTime: src.startTime || '09:00',
-                  endTime: src.endTime || '17:00', breakMinutes: src.breakMinutes || 0,
+                  endTime: src.endTime || '17:00', breakMinutes: src._breakMinutes,
                   totalHours: src._resolvedTotalHours, shiftType: src._resolvedShiftType,
-                  payRate: src.payRate || 0, notes: src.notes || null, client: src.client || null,
+                  payRate: src._payRate, notes: src._notes, client: src.client || null,
                 },
               });
               createdShiftIds.push(created.id);
@@ -270,23 +337,47 @@ export async function POST(request: NextRequest) {
       const validPayments: { id: string; src: any }[] = [];
 
       for (const payment of payments) {
+        // IMP-018: Validate each payment before processing
+        const pValidation = validatePayment(payment);
+        if (!pValidation.valid) {
+          results.errors.push(...pValidation.errors);
+        }
+
         const companyId = payment.companyId || (payment.companyName ? companyMap.get(payment.companyName.toLowerCase()) : null) || fallbackCompanyId;
         if (!companyId) {
           results.errors.push(`Payment ${payment.month}/${payment.year}: No matching company — you have no companies yet. Please create a company first.`);
           continue;
         }
 
-        const month = payment.month || new Date().getMonth() + 1;
-        const year = payment.year || new Date().getFullYear();
+        // IMP-018: Clamp and validate month/year
+        const month = (typeof payment.month === 'number' && Number.isFinite(payment.month) && payment.month >= 1 && payment.month <= 12)
+          ? Math.round(payment.month)
+          : new Date().getMonth() + 1;
+        const year = (typeof payment.year === 'number' && Number.isFinite(payment.year) && payment.year >= 2000 && payment.year <= 2100)
+          ? Math.round(payment.year)
+          : new Date().getFullYear();
         const dedupKey = `${user.id}:${companyId}:${month}:${year}`;
         if (existingPaymentKeys.has(dedupKey)) {
           results.paymentsSkipped++;
           continue;
         }
 
+        // IMP-018: Sanitize numeric fields
+        const safeNum = (v: any, max: number) => (typeof v === 'number' && Number.isFinite(v) && v >= 0) ? Math.round(v * 100) / 100 : 0;
+        const safeHours = (v: any) => (typeof v === 'number' && Number.isFinite(v) && v >= 0) ? Math.round(v * 100) / 100 : 0;
+
         validPayments.push({
           id: generateUniqueId(),
-          src: { ...payment, _resolvedCompanyId: companyId, _resolvedMonth: month, _resolvedYear: year },
+          src: {
+            ...payment,
+            _resolvedCompanyId: companyId, _resolvedMonth: month, _resolvedYear: year,
+            _totalExpected: safeNum(payment.totalExpected, Infinity),
+            _totalReceived: safeNum(payment.totalReceived, Infinity),
+            _totalHMRC: safeNum(payment.totalHMRC, Infinity),
+            _totalDue: safeNum(payment.totalDue, Infinity),
+            _workedHours: safeHours(payment.workedHours),
+            _notes: typeof payment.notes === 'string' ? payment.notes : null,
+          },
         });
       }
 
@@ -299,9 +390,9 @@ export async function POST(request: NextRequest) {
           for (const { id, src } of validPayments) {
             values.push(
               id, user.id, src._resolvedCompanyId, src._resolvedMonth, src._resolvedYear,
-              src.totalExpected || 0, src.totalReceived || 0, src.totalHMRC || 0,
-              src.totalDue || 0, src.workedHours || 0, 'PENDING',
-              src.notes || null, now, now,
+              src._totalExpected, src._totalReceived, src._totalHMRC,
+              src._totalDue, src._workedHours, 'PENDING',
+              src._notes, now, now,
             );
           }
 
@@ -325,10 +416,10 @@ export async function POST(request: NextRequest) {
                 data: {
                   userId: user.id, companyId: src._resolvedCompanyId,
                   month: src._resolvedMonth, year: src._resolvedYear,
-                  totalExpected: src.totalExpected || 0, totalReceived: src.totalReceived || 0,
-                  totalHMRC: src.totalHMRC || 0, totalDue: src.totalDue || 0,
-                  workedHours: src.workedHours || 0, status: 'PENDING',
-                  notes: src.notes || null,
+                  totalExpected: src._totalExpected, totalReceived: src._totalReceived,
+                  totalHMRC: src._totalHMRC, totalDue: src._totalDue,
+                  workedHours: src._workedHours, status: 'PENDING',
+                  notes: src._notes,
                 },
               })
             ));
@@ -349,10 +440,10 @@ export async function POST(request: NextRequest) {
                 data: {
                   userId: user.id, companyId: src._resolvedCompanyId,
                   month: src._resolvedMonth, year: src._resolvedYear,
-                  totalExpected: src.totalExpected || 0, totalReceived: src.totalReceived || 0,
-                  totalHMRC: src.totalHMRC || 0, totalDue: src.totalDue || 0,
-                  workedHours: src.workedHours || 0, status: 'PENDING',
-                  notes: src.notes || null,
+                  totalExpected: src._totalExpected, totalReceived: src._totalReceived,
+                  totalHMRC: src._totalHMRC, totalDue: src._totalDue,
+                  workedHours: src._workedHours, status: 'PENDING',
+                  notes: src._notes,
                 },
               });
               createdPaymentIds.push(created.id);
