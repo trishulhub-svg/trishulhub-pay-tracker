@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 
+// IMP-007: Allow up to 60s for cascade deletes on Vercel
+export const maxDuration = 60;
+
 // DELETE /api/import/logs/[id] — Delete an import history entry
 export async function DELETE(
   request: NextRequest,

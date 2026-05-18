@@ -20,6 +20,32 @@ function calcTotalHours(startTime: string, endTime: string, breakMinutes: number
   }
 }
 
+// IMP-002: Use crypto.randomUUID() for collision-free IDs
+function generateUniqueId(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for environments without crypto.randomUUID
+  return 'c' + Date.now().toString(36) + Math.random().toString(36).substring(2, 8) + Math.random().toString(36).substring(2, 6);
+}
+
+// IMP-003: Verify batch-inserted rows actually exist in DB
+async function verifyInsertedIds(tursoClient: any, ids: string[], table: string): Promise<string[]> {
+  if (ids.length === 0) return [];
+  try {
+    const placeholders = ids.map(() => '?').join(', ');
+    const result = await tursoClient.execute({
+      sql: `SELECT id FROM ${table} WHERE id IN (${placeholders})`,
+      args: ids,
+    });
+    const foundIds = new Set(result.rows.map((r: any) => r.id));
+    return ids.filter(id => foundIds.has(id));
+  } catch {
+    // If verification fails, assume all were inserted (optimistic)
+    return ids;
+  }
+}
+
 // POST /api/import/confirm — Save imported data after user review
 export async function POST(request: NextRequest) {
   try {
@@ -58,6 +84,10 @@ export async function POST(request: NextRequest) {
     const createdShiftIds: string[] = [];
     const createdPaymentIds: string[] = [];
     const createdCompanyIds: string[] = [];
+
+    // IMP-009: Import getTursoClientIfAvailable once at the top
+    const { getTursoClientIfAvailable } = await import('@/lib/db');
+    const tursoClient = getTursoClientIfAvailable();
 
     // Get user's current companies
     const existingCompanies = await db.company.findMany({ where: { userId: user.id } });
@@ -138,8 +168,9 @@ export async function POST(request: NextRequest) {
           totalHours = calcTotalHours(shift.startTime, shift.endTime, shift.breakMinutes || 0);
         }
 
+        // IMP-002: Use crypto.randomUUID() for guaranteed unique IDs
         validShifts.push({
-          id: 'c' + Date.now().toString(36) + Math.random().toString(36).substring(2, 8) + Math.random().toString(36).substring(2, 6),
+          id: generateUniqueId(),
           src: { ...shift, _resolvedCompanyId: companyId, _resolvedTotalHours: totalHours },
         });
       }
@@ -169,17 +200,25 @@ export async function POST(request: NextRequest) {
             );
           }
 
-          const { getTursoClientIfAvailable } = await import('@/lib/db');
-          const tursoClient = getTursoClientIfAvailable();
-
           if (tursoClient) {
+            // Turso: single batch INSERT — reduces N round-trips to 1
             await tursoClient.execute({
               sql: `INSERT INTO Shift (id, userId, companyId, date, startTime, endTime, breakMinutes, totalHours, shiftType, payRate, notes, client, createdAt, updatedAt)
                     VALUES ${placeholders}`,
               args: values,
             });
+
+            // IMP-003: Verify which rows actually made it into the DB
+            const verifiedIds = await verifyInsertedIds(tursoClient, validShifts.map(v => v.id), 'Shift');
+            if (verifiedIds.length < validShifts.length) {
+              const missing = validShifts.length - verifiedIds.length;
+              results.errors.push(`${missing} shift(s) failed to insert silently during batch operation.`);
+            }
+            verifiedIds.forEach(id => createdShiftIds.push(id));
+            results.shiftsCreated += verifiedIds.length;
           } else {
-            await Promise.all(validShifts.map(({ src }) =>
+            // Local SQLite: parallel ORM creates
+            const created = await Promise.allSettled(validShifts.map(({ src }) =>
               db.shift.create({
                 data: {
                   userId: user.id,
@@ -194,17 +233,21 @@ export async function POST(request: NextRequest) {
                   notes: src.notes || null,
                   client: src.client || null,
                 },
-              }).catch(() => {}),
+              })
             ));
+            created.forEach((r, i) => {
+              if (r.status === 'fulfilled') {
+                createdShiftIds.push(r.value.id);
+                results.shiftsCreated++;
+              } else {
+                results.errors.push(`Shift on ${validShifts[i].src.date}: ${r.reason instanceof Error ? r.reason.message : 'Failed to create'}`);
+              }
+            });
           }
-
-          for (const { id } of validShifts) {
-            createdShiftIds.push(id);
-          }
-          results.shiftsCreated += validShifts.length;
         } catch (e) {
           console.error('[IMPORT] Batch shift insert failed, falling back to sequential:', e);
-          for (const { src } of validShifts) {
+          // Graceful fallback to sequential
+          for (const { id, src } of validShifts) {
             try {
               const created = await db.shift.create({
                 data: {
@@ -251,8 +294,9 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
+        // IMP-002: Use crypto.randomUUID()
         validPayments.push({
-          id: 'c' + Date.now().toString(36) + Math.random().toString(36).substring(2, 8) + Math.random().toString(36).substring(2, 6),
+          id: generateUniqueId(),
           src: { ...payment, _resolvedCompanyId: companyId, _resolvedMonth: month, _resolvedYear: year },
         });
       }
@@ -282,17 +326,23 @@ export async function POST(request: NextRequest) {
             );
           }
 
-          const { getTursoClientIfAvailable } = await import('@/lib/db');
-          const tursoClient = getTursoClientIfAvailable();
-
           if (tursoClient) {
             await tursoClient.execute({
               sql: `INSERT INTO PaymentRecord (id, userId, companyId, month, year, totalExpected, totalReceived, totalHMRC, totalDue, workedHours, status, notes, createdAt, updatedAt)
                     VALUES ${placeholders}`,
               args: values,
             });
+
+            // IMP-003: Verify rows
+            const verifiedIds = await verifyInsertedIds(tursoClient, validPayments.map(v => v.id), 'PaymentRecord');
+            if (verifiedIds.length < validPayments.length) {
+              const missing = validPayments.length - verifiedIds.length;
+              results.errors.push(`${missing} payment(s) failed to insert silently during batch operation.`);
+            }
+            verifiedIds.forEach(id => createdPaymentIds.push(id));
+            results.paymentsCreated += verifiedIds.length;
           } else {
-            await Promise.all(validPayments.map(({ src }) =>
+            const created = await Promise.allSettled(validPayments.map(({ src }) =>
               db.paymentRecord.create({
                 data: {
                   userId: user.id,
@@ -307,17 +357,20 @@ export async function POST(request: NextRequest) {
                   status: 'PENDING',
                   notes: src.notes || null,
                 },
-              }).catch(() => {}),
+              })
             ));
+            created.forEach((r, i) => {
+              if (r.status === 'fulfilled') {
+                createdPaymentIds.push(r.value.id);
+                results.paymentsCreated++;
+              } else {
+                results.errors.push(`Payment ${validPayments[i].src._resolvedMonth}/${validPayments[i].src._resolvedYear}: ${r.reason instanceof Error ? r.reason.message : 'Failed to create'}`);
+              }
+            });
           }
-
-          for (const { id } of validPayments) {
-            createdPaymentIds.push(id);
-          }
-          results.paymentsCreated += validPayments.length;
         } catch (e) {
           console.error('[IMPORT] Batch payment insert failed, falling back to sequential:', e);
-          for (const { src } of validPayments) {
+          for (const { id, src } of validPayments) {
             try {
               const created = await db.paymentRecord.create({
                 data: {
@@ -368,9 +421,9 @@ export async function POST(request: NextRequest) {
 
     const msgParts = [
       `${results.shiftsCreated} shifts`,
-      results.shiftsSkipped > 0 ? `${results.shiftsSkipped} shifts skipped (duplicates)` : null,
+      results.shiftsSkipped > 0 ? `${results.shiftsSkipped} skipped` : null,
       `${results.paymentsCreated} payments`,
-      results.paymentsSkipped > 0 ? `${results.paymentsSkipped} payments skipped (duplicates)` : null,
+      results.paymentsSkipped > 0 ? `${results.paymentsSkipped} skipped` : null,
       `${results.companiesCreated} companies`,
     ].filter(Boolean).join(', ');
 

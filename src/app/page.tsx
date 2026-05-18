@@ -5535,6 +5535,8 @@ function ImportView({ user }: { user: SessionUser }) {
   const [reversingId, setReversingId] = useState<string | null>(null);
   const [showReverseDialog, setShowReverseDialog] = useState<string | null>(null);
   const [deletingLogId, setDeletingLogId] = useState<string | null>(null);
+  // IMP-004: Confirmation dialog for delete
+  const [showDeleteDialog, setShowDeleteDialog] = useState<string | null>(null);
 
   const fetchImportLogs = useCallback(async () => {
     setLoadingLogs(true);
@@ -5681,18 +5683,31 @@ function ImportView({ user }: { user: SessionUser }) {
     }
   };
 
+  // IMP-004: Actual delete handler — called after dialog confirmation
   const handleDeleteImportLog = async (importId: string) => {
     setDeletingLogId(importId);
     try {
-      const res = await fetch(`/api/import/logs/${importId}`, { method: 'DELETE' });
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error || 'Failed to delete');
-      toast.success('Import history deleted');
+      // IMP-008: 30s timeout for delete operations
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30_000);
+      try {
+        const res = await fetch(`/api/import/logs/${importId}`, { method: 'DELETE', signal: controller.signal });
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error || 'Failed to delete');
+        toast.success('Import history deleted');
+      } finally {
+        clearTimeout(timeoutId);
+      }
       fetchImportLogs();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete import history');
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        toast.error('Delete timed out. Please try again.');
+      } else {
+        toast.error(err instanceof Error ? err.message : 'Failed to delete import history');
+      }
     } finally {
       setDeletingLogId(null);
+      setShowDeleteDialog(null);
     }
   };
 
@@ -6133,7 +6148,7 @@ function ImportView({ user }: { user: SessionUser }) {
                             )}
                           </Button>
                           <Button
-                            onClick={() => handleDeleteImportLog(log.id)}
+                            onClick={() => setShowDeleteDialog(log.id)}
                             variant="outline"
                             size="sm"
                             className="text-muted-foreground border-border hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-600 dark:hover:text-red-400 h-8 text-xs"
@@ -6149,7 +6164,7 @@ function ImportView({ user }: { user: SessionUser }) {
                       )}
                       {log.reversed && (
                         <Button
-                          onClick={() => handleDeleteImportLog(log.id)}
+                          onClick={() => setShowDeleteDialog(log.id)}
                           variant="outline"
                           size="sm"
                           className="text-muted-foreground border-border hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-600 dark:hover:text-red-400 h-8 text-xs"
@@ -6157,7 +6172,7 @@ function ImportView({ user }: { user: SessionUser }) {
                         >
                           {deletingLogId === log.id ? (
                             <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Deleting...</>
-                          ) : (
+                            ) : (
                             <><Trash2 className="h-3 w-3 mr-1" /> Delete History</>
                           )}
                         </Button>
@@ -6192,6 +6207,33 @@ function ImportView({ user }: { user: SessionUser }) {
                   className="bg-red-600 hover:bg-red-700 text-white"
                 >
                   Yes, Reverse Import
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          {/* IMP-004: Delete confirmation dialog */}
+          <AlertDialog open={!!showDeleteDialog} onOpenChange={(open) => !open && setShowDeleteDialog(null)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete Import History?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently remove this import record from your history.
+                  {showDeleteDialog && (() => {
+                    const log = importLogs.find((l: any) => l.id === showDeleteDialog);
+                    return log && !log.reversed
+                      ? ' Since this import is still active, all associated shifts, payments, and auto-created companies will also be deleted. This cannot be undone.'
+                      : ' The import has already been reversed, so only the history record will be removed.';
+                  })()}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => showDeleteDialog && handleDeleteImportLog(showDeleteDialog)}
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                >
+                  Yes, Delete
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
