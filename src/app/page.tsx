@@ -5571,6 +5571,8 @@ function ImportView({ user }: { user: SessionUser }) {
   const [deletingLogId, setDeletingLogId] = useState<string | null>(null);
   // IMP-004: Confirmation dialog for delete
   const [showDeleteDialog, setShowDeleteDialog] = useState<string | null>(null);
+  // IMP-028: Drag-and-drop state
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const fetchImportLogs = useCallback(async () => {
     setLoadingLogs(true);
@@ -5606,6 +5608,37 @@ function ImportView({ user }: { user: SessionUser }) {
       setImported(null);
       setImportResult(null);
     }
+  };
+
+  // IMP-028: Drag-and-drop handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    const dropped = e.dataTransfer.files?.[0];
+    if (!dropped) return;
+    const name = dropped.name.toLowerCase();
+    if (!name.endsWith('.csv') && !name.endsWith('.pdf') && !name.endsWith('.docx') && !name.endsWith('.doc')) {
+      toast.error('Please drop a CSV, PDF, or DOCX file');
+      return;
+    }
+    if (dropped.size > 5 * 1024 * 1024) {
+      toast.error('File size must be less than 5MB');
+      return;
+    }
+    setFile(dropped);
+    setImported(null);
+    setImportResult(null);
   };
 
   const handleUpload = async () => {
@@ -5874,10 +5907,14 @@ function ImportView({ user }: { user: SessionUser }) {
                     </Select>
                   </div>
 
-                  {/* File input */}
+                  {/* File input — IMP-028: Added drag-and-drop support */}
                   <div
                     onClick={() => fileInputRef.current?.click()}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
                     className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+                      isDragOver ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30 scale-[1.02]' :
                       file ? 'border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/30' : 'border-border hover:border-blue-400 dark:hover:border-blue-600 hover:bg-muted/50'
                     }`}
                   >

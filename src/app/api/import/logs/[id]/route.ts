@@ -64,6 +64,7 @@ export async function DELETE(
     }
 
     // If the import is not reversed, also delete the associated data
+    let cascadeErrors = 0;
     if (!importEntry.reversed) {
       const { getTursoClientIfAvailable } = await import('@/lib/db');
       const tursoClient = getTursoClientIfAvailable();
@@ -71,25 +72,27 @@ export async function DELETE(
       if (importEntry.shiftIds && importEntry.shiftIds.length > 0) {
         if (tursoClient) {
           const placeholders = importEntry.shiftIds.map(() => '?').join(', ');
-          try { await tursoClient.execute({ sql: `DELETE FROM Shift WHERE id IN (${placeholders})`, args: importEntry.shiftIds }); } catch {}
+          try { await tursoClient.execute({ sql: `DELETE FROM Shift WHERE id IN (${placeholders})`, args: importEntry.shiftIds }); } catch (e) { console.warn('[IMPORT DELETE] Cascade shift delete failed:', e); cascadeErrors++; }
         } else {
-          await Promise.all(importEntry.shiftIds.map((sid: string) => db.shift.delete({ where: { id: sid } }).catch(() => {})));
+          const results = await Promise.allSettled(importEntry.shiftIds.map((sid: string) => db.shift.delete({ where: { id: sid } })));
+          cascadeErrors += results.filter(r => r.status === 'rejected').length;
         }
       }
 
       if (importEntry.paymentIds && importEntry.paymentIds.length > 0) {
         if (tursoClient) {
           const placeholders = importEntry.paymentIds.map(() => '?').join(', ');
-          try { await tursoClient.execute({ sql: `DELETE FROM PaymentRecord WHERE id IN (${placeholders})`, args: importEntry.paymentIds }); } catch {}
+          try { await tursoClient.execute({ sql: `DELETE FROM PaymentRecord WHERE id IN (${placeholders})`, args: importEntry.paymentIds }); } catch (e) { console.warn('[IMPORT DELETE] Cascade payment delete failed:', e); cascadeErrors++; }
         } else {
-          await Promise.all(importEntry.paymentIds.map((pid: string) => db.paymentRecord.delete({ where: { id: pid } }).catch(() => {})));
+          const results = await Promise.allSettled(importEntry.paymentIds.map((pid: string) => db.paymentRecord.delete({ where: { id: pid } })));
+          cascadeErrors += results.filter(r => r.status === 'rejected').length;
         }
       }
 
       // IMP-006: Batch company empty check
       const emptyCompanyIds = await findEmptyCompanyIds(tursoClient, importEntry.companyIds || []);
       for (const companyId of emptyCompanyIds) {
-        try { await db.company.delete({ where: { id: companyId } }); } catch {}
+        try { await db.company.delete({ where: { id: companyId } }); } catch (e) { console.warn(`[IMPORT DELETE] Company ${companyId} delete failed:`, e); cascadeErrors++; }
       }
     }
 
@@ -97,7 +100,9 @@ export async function DELETE(
 
     return NextResponse.json({
       success: true,
-      message: 'Import history deleted successfully.',
+      message: cascadeErrors > 0
+        ? `Import history deleted, but ${cascadeErrors} cascade deletion(s) failed. Some orphaned data may remain.`
+        : 'Import history deleted successfully.',
     });
   } catch (error) {
     console.error('Import log delete error:', error);
