@@ -76,13 +76,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Fallback: if user has companies, pick the first one for unmatched shifts/payments
+    const fallbackCompanyId = companyMap.size > 0
+      ? [...companyMap.values()][0]
+      : null;
+
     // Import shifts
     if (shifts && Array.isArray(shifts)) {
       for (const shift of shifts) {
         try {
-          const companyId = shift.companyId || (shift.companyName ? companyMap.get(shift.companyName.toLowerCase()) : null);
+          const companyId = shift.companyId || (shift.companyName ? companyMap.get(shift.companyName.toLowerCase()) : null) || fallbackCompanyId;
           if (!companyId) {
-            results.errors.push(`Shift on ${shift.date}: No matching company`);
+            results.errors.push(`Shift on ${shift.date}: No matching company — you have no companies yet. Please create a company first.`);
             continue;
           }
 
@@ -113,9 +118,9 @@ export async function POST(request: NextRequest) {
     if (payments && Array.isArray(payments)) {
       for (const payment of payments) {
         try {
-          const companyId = payment.companyId || (payment.companyName ? companyMap.get(payment.companyName.toLowerCase()) : null);
+          const companyId = payment.companyId || (payment.companyName ? companyMap.get(payment.companyName.toLowerCase()) : null) || fallbackCompanyId;
           if (!companyId) {
-            results.errors.push(`Payment ${payment.month}/${payment.year}: No matching company`);
+            results.errors.push(`Payment ${payment.month}/${payment.year}: No matching company — you have no companies yet. Please create a company first.`);
             continue;
           }
 

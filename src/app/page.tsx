@@ -5916,6 +5916,9 @@ function ImportView({ user }: { user: SessionUser }) {
                                   {!shift.companyMatched && shift.companyName && (
                                     <Badge className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">New company</Badge>
                                   )}
+                                  {!shift.companyName && !shift.companyId && (
+                                    <Badge className="text-[10px] bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">No company — will auto-assign</Badge>
+                                  )}
                                 </div>
                                 <p className="text-xs text-muted-foreground mt-0.5">
                                   {shift.startTime} - {shift.endTime} | {formatHoursMinutes(shift.totalHours)} | £{shift.payRate}/hr
@@ -5951,6 +5954,9 @@ function ImportView({ user }: { user: SessionUser }) {
                                   <span className="text-sm font-medium">Month {payment.month}/{payment.year}</span>
                                   {!payment.companyMatched && payment.companyName && (
                                     <Badge className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">New company</Badge>
+                                  )}
+                                  {!payment.companyName && !payment.companyId && (
+                                    <Badge className="text-[10px] bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">No company — will auto-assign</Badge>
                                   )}
                                 </div>
                                 <p className="text-xs text-muted-foreground mt-0.5">
