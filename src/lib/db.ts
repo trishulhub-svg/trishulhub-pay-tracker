@@ -47,6 +47,14 @@ function getTursoClient(): Client {
     _tursoClient.execute({ sql: 'CREATE INDEX IF NOT EXISTS idx_shift_userId_companyId_date ON Shift(userId, companyId, date)', args: [] }).catch(() => {});
     _tursoClient.execute({ sql: 'CREATE INDEX IF NOT EXISTS idx_company_userId ON Company(userId)', args: [] }).catch(() => {});
     _tursoClient.execute({ sql: 'CREATE INDEX IF NOT EXISTS idx_user_referredBy ON User(referredBy)', args: [] }).catch(() => {});
+    // REF-019: Add referredById column for direct joins (idempotent migration)
+    _tursoClient.execute({ sql: `ALTER TABLE User ADD COLUMN referredById TEXT`, args: [] }).catch(() => { /* column may already exist */ });
+    // REF-019: Backfill referredById from existing referredBy codes
+    _tursoClient.execute({
+      sql: `UPDATE User SET referredById = (SELECT r.id FROM User r WHERE r.referralCode = User.referredBy) WHERE referredBy IS NOT NULL AND referredById IS NULL`,
+      args: [],
+    }).catch(() => {});
+    _tursoClient.execute({ sql: 'CREATE INDEX IF NOT EXISTS idx_user_referredById ON User(referredById)', args: [] }).catch(() => {});
   }
 
   return _tursoClient;
@@ -346,6 +354,7 @@ export const user = {
       const fields = ['id', 'email', 'name', 'password', 'role', 'referralCode', 'isPremium', 'emailVerified', 'termsAccepted', 'createdAt', 'updatedAt']
       const values = [id, d.email, d.name, d.password, d.role || 'USER', d.referralCode, d.isPremium ? 1 : 0, d.emailVerified ? 1 : 0, d.termsAccepted ? 1 : 0, now, now]
       if (d.referredBy) { fields.push('referredBy'); values.push(d.referredBy) }
+      if (d.referredById) { fields.push('referredById'); values.push(d.referredById) }
       if (d.phone) { fields.push('phone'); values.push(d.phone) }
       if (d.termsAcceptedAt) { fields.push('termsAcceptedAt'); values.push(typeof d.termsAcceptedAt === 'string' ? d.termsAcceptedAt : now) }
       const placeholders = fields.map(() => '?').join(', ')

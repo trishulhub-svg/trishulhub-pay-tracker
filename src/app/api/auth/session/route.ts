@@ -12,7 +12,7 @@ export async function GET() {
     // Get fresh user data from DB in case isPremium or role changed
     const freshUser = await db.user.findUnique({
       where: { id: sessionUser.id },
-      select: { isPremium: true, referralCode: true, name: true, email: true, role: true, deactivated: true },
+      select: { isPremium: true, referralCode: true, name: true, email: true, role: true, deactivated: true, premiumExpiresAt: true },
     });
 
     // If user was deactivated, force logout
@@ -22,11 +22,25 @@ export async function GET() {
       return response;
     }
 
+    // REF-023: Check if premium has expired and revoke if so
+    let isPremium = !!(freshUser?.isPremium ?? sessionUser.isPremium);
+    if (isPremium && freshUser?.premiumExpiresAt) {
+      const expiresAt = new Date(freshUser.premiumExpiresAt as string);
+      if (expiresAt < new Date()) {
+        isPremium = false;
+        // Persist the change in DB
+        await db.user.update({
+          where: { id: sessionUser.id },
+          data: { isPremium: false },
+        }).catch(() => { /* non-critical */ });
+      }
+    }
+
     const user = {
       id: sessionUser.id,
       email: freshUser?.email ?? sessionUser.email,
       name: freshUser?.name ?? sessionUser.name,
-      isPremium: !!(freshUser?.isPremium ?? sessionUser.isPremium),
+      isPremium,
       referralCode: freshUser?.referralCode ?? sessionUser.referralCode,
       role: freshUser?.role ?? sessionUser.role ?? 'USER',
     };

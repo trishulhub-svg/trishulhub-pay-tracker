@@ -124,6 +124,7 @@ interface ReferralData {
   referralCount: number;
   isPremium: boolean;
   referredBy: string | null;
+  referredUsers: { name: string; createdAt: string; isActive: boolean }[];
 }
 
 interface AdminData {
@@ -4086,6 +4087,35 @@ function ShiftEditSheet({
 }
 
 // ============================================================
+// REF-016: Clipboard fallback for non-HTTPS contexts
+// REF-017: Shared utility used by ReferralsView, PremiumFeaturePopup, SettingsView
+// ============================================================
+async function safeCopyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* fall through to fallback */ }
+  // Fallback: hidden textarea + execCommand (works on HTTP)
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+// ============================================================
 // REFERRALS VIEW
 // ============================================================
 function ReferralsView({ user }: { user: SessionUser }) {
@@ -4115,25 +4145,15 @@ function ReferralsView({ user }: { user: SessionUser }) {
   const referralLink = typeof window !== 'undefined' ? `${window.location.origin}/?ref=${user.referralCode}` : '';
 
   const copyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(referralLink);
-      setCopiedLink(true);
-      toast.success('Link copied!');
-      setTimeout(() => setCopiedLink(false), 2000);
-    } catch {
-      toast.error('Failed to copy');
-    }
+    const ok = await safeCopyToClipboard(referralLink);
+    if (ok) { setCopiedLink(true); toast.success('Link copied!'); setTimeout(() => setCopiedLink(false), 2000); }
+    else toast.error('Failed to copy');
   };
 
   const copyCode = async () => {
-    try {
-      await navigator.clipboard.writeText(user.referralCode);
-      setCopiedCode(true);
-      toast.success('Code copied!');
-      setTimeout(() => setCopiedCode(false), 2000);
-    } catch {
-      toast.error('Failed to copy');
-    }
+    const ok = await safeCopyToClipboard(user.referralCode);
+    if (ok) { setCopiedCode(true); toast.success('Code copied!'); setTimeout(() => setCopiedCode(false), 2000); }
+    else toast.error('Failed to copy');
   };
 
   const shareLink = async () => {
@@ -4146,7 +4166,9 @@ function ReferralsView({ user }: { user: SessionUser }) {
         });
       } catch { /* user cancelled */ }
     } else {
-      copyLink();
+      const ok = await safeCopyToClipboard(referralLink);
+      if (ok) toast.success('Link copied to clipboard!');
+      else toast.error('Failed to copy');
     }
   };
 
@@ -4245,6 +4267,38 @@ function ReferralsView({ user }: { user: SessionUser }) {
           </Button>
         </CardContent>
       </Card>
+
+      {/* REF-005: Referred Users List */}
+      {data.referredUsers && data.referredUsers.length > 0 && (
+        <Card className="border-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Your Referrals ({data.referredUsers.length})</CardTitle>
+            <CardDescription>People who signed up using your code</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {data.referredUsers.map((ru, i) => (
+                <div key={i} className="flex items-center justify-between p-2 rounded-lg border border-border">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-600 to-green-600 flex items-center justify-center shrink-0">
+                      <span className="text-[10px] font-bold text-white">{ru.name.charAt(0).toUpperCase()}</span>
+                    </div>
+                    <div>
+                      <p className="text-sm text-foreground">{ru.name}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {new Date(ru.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge variant={ru.isActive ? 'default' : 'secondary'} className={`text-[10px] ${ru.isActive ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' : ''}`}>
+                    {ru.isActive ? 'Active' : 'Inactive'}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* How it works */}
       <Card className="border-border">
@@ -5043,14 +5097,9 @@ function PremiumFeaturePopup({ open, onClose, user }: { open: boolean; onClose: 
   const [copiedCode, setCopiedCode] = useState(false);
 
   const copyCode = async () => {
-    try {
-      await navigator.clipboard.writeText(user.referralCode);
-      setCopiedCode(true);
-      toast.success('Referral code copied!');
-      setTimeout(() => setCopiedCode(false), 2000);
-    } catch {
-      toast.error('Failed to copy');
-    }
+    const ok = await safeCopyToClipboard(user.referralCode);
+    if (ok) { setCopiedCode(true); toast.success('Referral code copied!'); setTimeout(() => setCopiedCode(false), 2000); }
+    else toast.error('Failed to copy');
   };
 
   const shareLink = async () => {
@@ -5064,8 +5113,9 @@ function PremiumFeaturePopup({ open, onClose, user }: { open: boolean; onClose: 
         });
       } catch { /* user cancelled */ }
     } else {
-      await navigator.clipboard.writeText(link);
-      toast.success('Link copied to clipboard!');
+      const ok = await safeCopyToClipboard(link);
+      if (ok) toast.success('Link copied to clipboard!');
+      else toast.error('Failed to copy');
     }
   };
 

@@ -16,6 +16,22 @@ function safeCompare(a: string, b: string): boolean {
 
 const REFERRAL_CODE_RE = /^TRISHUL-[A-Z0-9]{6}$/;
 
+// REF-003: Simple in-memory rate limiter for referral code lookups
+const referralLookupAttempts = new Map<string, { count: number; windowStart: number }>();
+const MAX_REFERRAL_LOOKUPS = 10;
+const REFERRAL_LOOKUP_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+function isReferralLookupRateLimited(): boolean {
+  const now = Date.now();
+  let entry = referralLookupAttempts.get('global');
+  if (!entry || now - entry.windowStart > REFERRAL_LOOKUP_WINDOW_MS) {
+    referralLookupAttempts.set('global', { count: 1, windowStart: now });
+    return false;
+  }
+  entry.count++;
+  return entry.count > MAX_REFERRAL_LOOKUPS;
+}
+
 function generateReferralCode(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let code = 'TRISHUL-';
@@ -88,6 +104,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // REF-003: Rate limit referral code validation lookups
+    if (normalizedReferralCode && isReferralLookupRateLimited()) {
+      return NextResponse.json(
+        { error: 'Too many referral attempts. Please try again later.' },
+        { status: 429 }
+      );
+    }
+
     // Run independent checks in parallel: existing user + hash password + referral lookup
     const [existing, hashedPassword, referrer] = await Promise.all([
       db.user.findUnique({ where: { email: normalizedEmail } }),
@@ -101,12 +125,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'This email is already registered. Please sign in instead.' }, { status: 409 });
     }
 
-    // Generate unique referral code
+    // Generate unique referral code (REF-012: max 10 attempts guard)
+    const MAX_CODE_GEN_ATTEMPTS = 10;
     let newReferralCode = generateReferralCode();
     let codeExists = await db.user.findUnique({ where: { referralCode: newReferralCode } });
-    while (codeExists) {
+    let attempts = 1;
+    while (codeExists && attempts < MAX_CODE_GEN_ATTEMPTS) {
       newReferralCode = generateReferralCode();
       codeExists = await db.user.findUnique({ where: { referralCode: newReferralCode } });
+      attempts++;
+    }
+    if (codeExists) {
+      return NextResponse.json({ error: 'Could not generate a unique referral code. Please try again.' }, { status: 500 });
     }
 
     // Mark referrer as premium if valid (and not deactivated)
@@ -129,10 +159,23 @@ export async function POST(request: NextRequest) {
         );
       }
       referredBy = normalizedReferralCode;
+      // REF-023: Set premium with 1-year expiry
+      const premiumExpiry = new Date();
+      premiumExpiry.setFullYear(premiumExpiry.getFullYear() + 1);
       await db.user.update({
         where: { id: referrer.id },
-        data: { isPremium: true },
+        data: { isPremium: true, premiumExpiresAt: premiumExpiry.toISOString() },
       });
+      // REF-024: Audit log for premium grants
+      console.info(JSON.stringify({
+        event: 'referral_premium_granted',
+        referrerId: referrer.id,
+        referrerEmail: referrer.email,
+        referredEmail: normalizedEmail,
+        referralCode: normalizedReferralCode,
+        premiumExpiresAt: premiumExpiry.toISOString(),
+        timestamp: new Date().toISOString(),
+      }));
     }
 
     // Create user with email verified
@@ -143,6 +186,7 @@ export async function POST(request: NextRequest) {
         password: hashedPassword,
         referralCode: newReferralCode,
         referredBy,
+        referredById: referrer?.id || undefined,
         isPremium: false,
         termsAccepted: true,
         termsAcceptedAt: new Date(),
