@@ -90,9 +90,13 @@ function getPrismaClient(): any {
 // Works with BOTH Prisma (local dev) and Turso (production)
 // ============================================================
 
-// Helper to generate CUID-like IDs
+// SHI-010: Use crypto.randomUUID() for collision-free IDs (replaces Date.now()-based generator)
 function generateId(): string {
-  return 'c' + Date.now().toString(36) + Math.random().toString(36).substring(2, 8)
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for environments without crypto.randomUUID (shouldn't happen in Node 19+/Edge)
+  return 'c' + Date.now().toString(36) + Math.random().toString(36).substring(2, 8) + Math.random().toString(36).substring(2, 6);
 }
 
 // Helper to get current timestamp

@@ -3926,6 +3926,8 @@ function ShiftEditSheet({
   const [client, setClient] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // SHI-008: When company changes in edit sheet, reset custom rate flag
+  // so the server's effective pay rate logic applies for the new company
   useEffect(() => {
     if (shift) {
       setCompanyId(shift.companyId);
@@ -3946,6 +3948,14 @@ function ShiftEditSheet({
       }
     }
   }, [shift, companies]);
+
+  // SHI-008: Reset custom rate when user switches company in edit form
+  useEffect(() => {
+    if (shift) {
+      setUseCustomRate(false);
+      setPayRate('');
+    }
+  }, [companyId]);
 
   // Get company pay rate
   const selectedCompany = companies.find((c) => c.id === companyId);

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, getTursoClientIfAvailable } from '@/lib/db';
 import { getSession } from '@/lib/session';
 
 // SHI-007: Allow up to 60s for PDF generation on Vercel
@@ -96,15 +96,33 @@ export async function GET(request: NextRequest) {
     const companies = await db.company.findMany({ where: { userId: user.id } });
     const companyMap = new Map<string, any>(companies.map((c: any) => [c.id, c]));
 
-    // Fetch pay rate history
+    // SHI-006: Batch fetch pay rate history for all companies in one query
     const rateHistoryMap = new Map<string, any[]>();
-    for (const c of companies) {
+    if (companies.length > 0) {
       try {
-        const history = await db.payRateHistory.findMany({
-          where: { companyId: c.id },
-          orderBy: { effectiveFrom: 'desc' },
-        });
-        rateHistoryMap.set(c.id, history);
+        const companyIds = companies.map((c: any) => c.id);
+        const placeholders = companyIds.map(() => '?').join(', ');
+        const historyClient = getTursoClientIfAvailable();
+        if (historyClient) {
+          const historyResult = await historyClient.execute({
+            sql: `SELECT companyId, effectiveFrom, payRate FROM PayRateHistory WHERE companyId IN (${placeholders}) ORDER BY companyId, effectiveFrom DESC`,
+            args: companyIds,
+          });
+          for (const row of historyResult.rows) {
+            const r = row as any;
+            if (!rateHistoryMap.has(r.companyId)) rateHistoryMap.set(r.companyId, []);
+            rateHistoryMap.get(r.companyId)!.push({ effectiveFrom: r.effectiveFrom, payRate: Number(r.payRate) || 0 });
+          }
+        } else {
+          // Fallback: sequential fetch for local dev
+          for (const c of companies) {
+            const history = await db.payRateHistory.findMany({
+              where: { companyId: c.id },
+              orderBy: { effectiveFrom: 'desc' },
+            });
+            rateHistoryMap.set(c.id, history);
+          }
+        }
       } catch { /* ignore */ }
     }
 

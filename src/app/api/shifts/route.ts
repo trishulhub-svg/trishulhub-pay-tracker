@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { getTursoClientIfAvailable } from '@/lib/db';
 
 // SHI-020: Valid shift types enum
 const VALID_SHIFT_TYPES = ['REGULAR', 'OVERTIME', 'HOLIDAY', 'SICK', 'ON_CALL'] as const;
@@ -18,8 +19,14 @@ export async function GET(request: NextRequest) {
     const year = searchParams.get('year');
     const limitParam = searchParams.get('limit');
 
-    const where: Record<string, unknown> = { userId: user.id };
-    if (companyId) where.companyId = companyId;
+    // Build WHERE conditions for SQL queries
+    const conditions: string[] = ['s.userId = ?'];
+    const values: any[] = [user.id];
+
+    if (companyId) {
+      conditions.push('s.companyId = ?');
+      values.push(companyId);
+    }
 
     // Filter by month/year if provided
     if (month && year) {
@@ -33,31 +40,99 @@ export async function GET(request: NextRequest) {
       const endDate = m === 12
         ? `${y + 1}-01-01`
         : `${y}-${String(m + 1).padStart(2, '0')}-01`;
-      where.date = { gte: startDate, lt: endDate };
+      conditions.push('s.date >= ?');
+      conditions.push('s.date < ?');
+      values.push(startDate, endDate);
     }
 
     // SHI-003: Support limit parameter for pagination (default: 200, max: 500)
     const queryLimit = limitParam ? Math.min(parseInt(limitParam) || 200, 500) : 200;
+    const whereClause = conditions.join(' AND ');
 
-    const shifts = await db.shift.findMany({
-      where,
+    // SHI-004: Use separate aggregate query for totals — avoids fetching all rows
+    const tursoClient = getTursoClientIfAvailable();
+    let totals: { totalHours: number; totalBreakMinutes: number; totalShifts: number };
+    let totalCount: number;
+
+    if (tursoClient) {
+      // Efficient aggregate query on Turso
+      try {
+        const aggResult = await tursoClient.execute({
+          sql: `SELECT COALESCE(SUM(totalHours), 0) as totalHours, COALESCE(SUM(breakMinutes), 0) as totalBreakMinutes, COUNT(*) as totalShifts FROM Shift s WHERE ${whereClause}`,
+          args: values,
+        });
+        const row = aggResult.rows[0] as any;
+        totals = {
+          totalHours: Number(row.totalHours) || 0,
+          totalBreakMinutes: Number(row.totalBreakMinutes) || 0,
+          totalShifts: Number(row.totalShifts) || 0,
+        };
+        totalCount = totals.totalShifts;
+      } catch {
+        // Fallback to ORM aggregate
+        const where: Record<string, unknown> = { userId: user.id };
+        if (companyId) where.companyId = companyId;
+        if (month && year) {
+          const m = parseInt(month)!;
+          const y = parseInt(year)!;
+          const startDate = `${y}-${String(m).padStart(2, '0')}-01`;
+          const endDate = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+          where.date = { gte: startDate, lt: endDate };
+        }
+        const allShifts = await db.shift.findMany({ where, orderBy: { date: 'desc' } });
+        totals = allShifts.reduce(
+          (acc, s) => ({
+            totalHours: acc.totalHours + s.totalHours,
+            totalBreakMinutes: acc.totalBreakMinutes + s.breakMinutes,
+            totalShifts: acc.totalShifts + 1,
+          }),
+          { totalHours: 0, totalBreakMinutes: 0, totalShifts: 0 }
+        );
+        totalCount = allShifts.length;
+      }
+    } else {
+      // Local dev with Prisma — use ORM for everything
+      const where: Record<string, unknown> = { userId: user.id };
+      if (companyId) where.companyId = companyId;
+      if (month && year) {
+        const m = parseInt(month)!;
+        const y = parseInt(year)!;
+        const startDate = `${y}-${String(m).padStart(2, '0')}-01`;
+        const endDate = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+        where.date = { gte: startDate, lt: endDate };
+      }
+      const allShifts = await db.shift.findMany({ where, orderBy: { date: 'desc' } });
+      totals = allShifts.reduce(
+        (acc, s) => ({
+          totalHours: acc.totalHours + s.totalHours,
+          totalBreakMinutes: acc.totalBreakMinutes + s.breakMinutes,
+          totalShifts: acc.totalShifts + 1,
+        }),
+        { totalHours: 0, totalBreakMinutes: 0, totalShifts: 0 }
+      );
+      totalCount = allShifts.length;
+    }
+
+    // Paginated data query via ORM (needs JOIN with Company for response shape)
+    const ormWhere: Record<string, unknown> = { userId: user.id };
+    if (companyId) ormWhere.companyId = companyId;
+    if (month && year) {
+      const m = parseInt(month)!;
+      const y = parseInt(year)!;
+      const startDate = `${y}-${String(m).padStart(2, '0')}-01`;
+      const endDate = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+      ormWhere.date = { gte: startDate, lt: endDate };
+    }
+
+    const limitedShifts = await db.shift.findMany({
+      where: ormWhere,
       orderBy: { date: 'desc' },
     });
 
-    // Apply limit after fetch (totals need full dataset for accurate aggregation)
-    const limitedShifts = shifts.slice(0, queryLimit);
+    // Apply limit after ORM fetch (ORM doesn't support LIMIT natively in our wrapper)
+    const shifts = limitedShifts.slice(0, queryLimit);
 
-    // Calculate totals
-    const totals = shifts.reduce(
-      (acc, s) => ({
-        totalHours: acc.totalHours + s.totalHours,
-        totalBreakMinutes: acc.totalBreakMinutes + s.breakMinutes,
-        totalShifts: acc.totalShifts + 1,
-      }),
-      { totalHours: 0, totalBreakMinutes: 0, totalShifts: 0 }
-    );
-
-    return NextResponse.json({ shifts: limitedShifts, totals, hasMore: shifts.length > queryLimit });
+    return NextResponse.json({ shifts, totals, hasMore: totalCount > queryLimit });
   } catch (error) {
     console.error('Shifts list error:', error);
     return NextResponse.json({ error: 'Failed to load shifts' }, { status: 500 });
