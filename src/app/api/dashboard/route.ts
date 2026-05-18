@@ -105,9 +105,14 @@ export async function GET(request: NextRequest) {
           ORDER BY pr.year DESC, pr.month DESC`,
           args: [user.id, currentMonth, currentYear, prevMonth, prevYear, ...companyArgs],
         }),
-        // 4. Per-company stats via GROUP BY (was O(n*m) JS filtering — DASH-008)
+        // 4. DASH-017: Per-company stats — CTE for latestStatus (was correlated subquery)
         tursoClient.execute({
-          sql: `SELECT
+          sql: `WITH LatestStatus AS (
+            SELECT companyId, status,
+              ROW_NUMBER() OVER (PARTITION BY companyId ORDER BY year DESC, month DESC) as rn
+            FROM PaymentRecord WHERE userId = ?
+          )
+          SELECT
             pr.companyId as id,
             MAX(c.name) as name,
             COUNT(*) as recordCount,
@@ -115,13 +120,7 @@ export async function GET(request: NextRequest) {
             COALESCE(SUM(pr.totalReceived), 0) as totalReceived,
             COALESCE(SUM(pr.totalHMRC), 0) as totalHMRC,
             COALESCE(SUM(pr.totalDue), 0) as totalDue,
-            (
-              SELECT pr2.status FROM PaymentRecord pr2
-              WHERE pr2.companyId = pr.companyId
-                AND pr2.userId = ?
-              ORDER BY pr2.year DESC, pr2.month DESC
-              LIMIT 1
-            ) as latestStatus
+            (SELECT ls.status FROM LatestStatus ls WHERE ls.companyId = pr.companyId AND ls.rn = 1) as latestStatus
           FROM PaymentRecord pr
           JOIN Company c ON pr.companyId = c.id
           WHERE pr.userId = ?${companyFilter}

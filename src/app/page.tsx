@@ -1764,6 +1764,7 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
           icon={AlertCircle}
           gradient="from-amber-600 to-amber-700 dark:from-amber-700 dark:to-amber-800"
           change={calcChange(comparison.current?.totalDue || 0, comparison.previous?.totalDue || 0)}
+          invertTrend
         />
         <StatCard
           title="HMRC Deductions"
@@ -1875,7 +1876,7 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
             </div>
             <div className="flex justify-between items-center">
               <span className="text-sm text-muted-foreground">Break Time</span>
-              <span className="font-semibold text-foreground">{shiftSummary.totalBreakMinutes}m</span>
+              <span className="font-semibold text-foreground">{formatHoursMinutes(shiftSummary.totalBreakMinutes / 60)}</span>
             </div>
             {/* DASH-006: Show manual hours if different from computed */}
             {hasManualHours && (
@@ -1912,7 +1913,15 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
                 </div>
               </div>
               {!referralInfo.isPremium && (
-                <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(referralInfo.referralCode); toast.success('Referral code copied!'); }} className="min-h-[44px]">
+                <Button variant="outline" size="sm" onClick={() => {
+                  // DASH-015: Graceful fallback if clipboard API unavailable (insecure context)
+                  try {
+                    navigator.clipboard.writeText(referralInfo.referralCode);
+                    toast.success('Referral code copied!');
+                  } catch {
+                    toast.error('Could not copy — try manually: ' + referralInfo.referralCode);
+                  }
+                }} className="min-h-[44px]">
                   <Copy className="h-3.5 w-3.5 mr-1.5" /> Copy Code
                 </Button>
               )}
@@ -2047,9 +2056,13 @@ function DashboardView({ user, setCurrentView }: { user: SessionUser; setCurrent
 // ============================================================
 // STAT CARD
 // ============================================================
-function StatCard({ title, value, icon: Icon, gradient, change }: { title: string; value: string; icon: React.ElementType; gradient: string; change?: number | null }) {
+function StatCard({ title, value, icon: Icon, gradient, change, invertTrend }: { title: string; value: string; icon: React.ElementType; gradient: string; change?: number | null; invertTrend?: boolean }) {
+  // DASH-014: invertTrend reverses color logic (e.g., "Total Due" going up is bad = red)
   const isUp = change !== null && change !== undefined && change >= 0;
   const isDown = change !== null && change !== undefined && change < 0;
+  const trendColor = invertTrend
+    ? (isUp ? 'text-red-200' : 'text-green-200')
+    : (isUp ? 'text-green-200' : 'text-red-200');
   return (
     <div className={`rounded-xl bg-gradient-to-br ${gradient} p-4 text-white shadow-sm`}>
       <div className="flex items-center justify-between mb-2">
@@ -2058,7 +2071,7 @@ function StatCard({ title, value, icon: Icon, gradient, change }: { title: strin
       </div>
       <p className="text-lg md:text-xl font-bold">{value}</p>
       {change !== null && change !== undefined && (
-        <div className={`flex items-center gap-1 mt-1 text-xs ${isUp ? 'text-green-200' : 'text-red-200'}`}>
+        <div className={`flex items-center gap-1 mt-1 text-xs ${trendColor}`}>
           {isUp ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
           <span>{isUp ? '+' : ''}{change.toFixed(0)}%</span>
           <span className="opacity-70">vs last month</span>
