@@ -184,6 +184,21 @@ export async function PUT(request: Request) {
       if (value.includes('••••')) {
         continue;
       }
+      // SET-020: Validate SMTP port is numeric and in valid range
+      if (key === 'BREVO_SMTP_PORT') {
+        const port = parseInt(value.trim());
+        if (isNaN(port) || port < 1 || port > 65535) {
+          auditLog.push({ key, action: `rejected (invalid port: ${value.trim()})` });
+          continue;
+        }
+      }
+      // SET-020: Validate email format for sender addresses
+      if (key === 'BREVO_FROM_EMAIL' || key === 'BREVO_SMTP_LOGIN') {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())) {
+          auditLog.push({ key, action: `rejected (invalid email: ${value.trim()})` });
+          continue;
+        }
+      }
       // Skip empty values (don't save empty strings, delete instead)
       if (!value.trim()) {
         // Audit: record removal

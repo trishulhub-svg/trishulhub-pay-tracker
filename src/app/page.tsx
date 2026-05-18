@@ -4562,7 +4562,7 @@ function SettingsView({ user, onLogout, theme, setTheme }: { user: SessionUser; 
 
       {/* Footer */}
       <div className="text-center text-xs text-muted-foreground pb-4">
-        <p>TrishulHub Pay Tracker v1.0</p>
+        <p>TrishulHub Pay Tracker</p>
         <p>Made with ❤️ in the UK</p>
       </div>
     </div>
@@ -5364,9 +5364,17 @@ function AiSettingsView() {
     try {
       const data = await apiFetch('/api/admin/settings');
       setSettings(data.settings);
+      // SET-021: Pre-fill form with empty strings for sensitive keys, actual values for non-sensitive
       const formValues: Record<string, string> = {};
       for (const key of Object.keys(data.settings)) {
-        formValues[key] = key === 'ZAI_MODEL' ? 'glm-4.5-flash' : key === 'ZAI_API_ENDPOINT' ? 'general' : '';
+        if (key === 'ZAI_API_KEY') {
+          formValues[key] = ''; // Never pre-fill API key
+        } else if (data.settings[key].masked) {
+          // Non-sensitive key has a value — show it masked so user can see current setting
+          formValues[key] = data.settings[key].masked;
+        } else {
+          formValues[key] = '';
+        }
       }
       setForm(formValues);
     } catch (err: unknown) {
