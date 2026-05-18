@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 
+// Allow up to 60s for large imports on Vercel
+export const maxDuration = 60;
+
 // POST /api/import/confirm — Save imported data after user review
 export async function POST(request: NextRequest) {
   try {
@@ -35,7 +38,6 @@ export async function POST(request: NextRequest) {
       importId: '' as string,
     };
 
-    // Track IDs of created items for the import log
     const createdShiftIds: string[] = [];
     const createdPaymentIds: string[] = [];
     const createdCompanyIds: string[] = [];
@@ -59,11 +61,7 @@ export async function POST(request: NextRequest) {
       if (createCompanies) {
         try {
           const newCompany = await db.company.create({
-            data: {
-              name,
-              userId: user.id,
-              payRate: 0,
-            },
+            data: { name, userId: user.id, payRate: 0 },
           });
           companyMap.set(name.toLowerCase(), newCompany.id);
           createdCompanyIds.push(newCompany.id);
@@ -81,68 +79,210 @@ export async function POST(request: NextRequest) {
       ? [...companyMap.values()][0]
       : null;
 
-    // Import shifts
-    if (shifts && Array.isArray(shifts)) {
+    // ─── Batch import shifts ───
+    if (shifts && Array.isArray(shifts) && shifts.length > 0) {
+      // Pre-validate: pair each valid shift with its pre-generated ID
+      const validShifts: { id: string; src: any }[] = [];
       for (const shift of shifts) {
+        const companyId = shift.companyId || (shift.companyName ? companyMap.get(shift.companyName.toLowerCase()) : null) || fallbackCompanyId;
+        if (!companyId) {
+          results.errors.push(`Shift on ${shift.date}: No matching company — you have no companies yet. Please create a company first.`);
+          continue;
+        }
+        validShifts.push({
+          id: 'c' + Date.now().toString(36) + Math.random().toString(36).substring(2, 8) + Math.random().toString(36).substring(2, 6),
+          src: { ...shift, _resolvedCompanyId: companyId },
+        });
+      }
+
+      if (validShifts.length > 0) {
         try {
-          const companyId = shift.companyId || (shift.companyName ? companyMap.get(shift.companyName.toLowerCase()) : null) || fallbackCompanyId;
-          if (!companyId) {
-            results.errors.push(`Shift on ${shift.date}: No matching company — you have no companies yet. Please create a company first.`);
-            continue;
+          const now = new Date().toISOString();
+          const placeholders = validShifts.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+          const values: any[] = [];
+
+          for (const { id, src } of validShifts) {
+            values.push(
+              id,
+              user.id,
+              src._resolvedCompanyId,
+              src.date,
+              src.startTime || '09:00',
+              src.endTime || '17:00',
+              src.breakMinutes || 0,
+              src.totalHours || 0,
+              src.shiftType || 'REGULAR',
+              src.payRate || 0,
+              src.notes || null,
+              src.client || null,
+              now,
+              now,
+            );
           }
 
-          const created = await db.shift.create({
-            data: {
-              userId: user.id,
-              companyId,
-              date: shift.date,
-              startTime: shift.startTime || '09:00',
-              endTime: shift.endTime || '17:00',
-              breakMinutes: shift.breakMinutes || 0,
-              totalHours: shift.totalHours || 0,
-              shiftType: shift.shiftType || 'REGULAR',
-              payRate: shift.payRate || 0,
-              notes: shift.notes || null,
-              client: shift.client || null,
-            },
-          });
-          createdShiftIds.push(created.id);
-          results.shiftsCreated++;
+          const { getTursoClientIfAvailable } = await import('@/lib/db');
+          const tursoClient = getTursoClientIfAvailable();
+
+          if (tursoClient) {
+            // Turso: single batch INSERT — reduces N round-trips to 1
+            await tursoClient.execute({
+              sql: `INSERT INTO Shift (id, userId, companyId, date, startTime, endTime, breakMinutes, totalHours, shiftType, payRate, notes, client, createdAt, updatedAt)
+                    VALUES ${placeholders}`,
+              args: values,
+            });
+          } else {
+            // Local SQLite: parallel ORM creates
+            await Promise.all(validShifts.map(({ src }) =>
+              db.shift.create({
+                data: {
+                  userId: user.id,
+                  companyId: src._resolvedCompanyId,
+                  date: src.date,
+                  startTime: src.startTime || '09:00',
+                  endTime: src.endTime || '17:00',
+                  breakMinutes: src.breakMinutes || 0,
+                  totalHours: src.totalHours || 0,
+                  shiftType: src.shiftType || 'REGULAR',
+                  payRate: src.payRate || 0,
+                  notes: src.notes || null,
+                  client: src.client || null,
+                },
+              }).catch(() => {}),
+            ));
+          }
+
+          for (const { id } of validShifts) {
+            createdShiftIds.push(id);
+          }
+          results.shiftsCreated += validShifts.length;
         } catch (e) {
-          results.errors.push(`Shift on ${shift.date}: ${e instanceof Error ? e.message : 'Failed to create'}`);
+          console.error('[IMPORT] Batch shift insert failed, falling back to sequential:', e);
+          // Graceful fallback to sequential
+          for (const { src } of validShifts) {
+            try {
+              const created = await db.shift.create({
+                data: {
+                  userId: user.id,
+                  companyId: src._resolvedCompanyId,
+                  date: src.date,
+                  startTime: src.startTime || '09:00',
+                  endTime: src.endTime || '17:00',
+                  breakMinutes: src.breakMinutes || 0,
+                  totalHours: src.totalHours || 0,
+                  shiftType: src.shiftType || 'REGULAR',
+                  payRate: src.payRate || 0,
+                  notes: src.notes || null,
+                  client: src.client || null,
+                },
+              });
+              createdShiftIds.push(created.id);
+              results.shiftsCreated++;
+            } catch (err) {
+              results.errors.push(`Shift on ${src.date}: ${err instanceof Error ? err.message : 'Failed to create'}`);
+            }
+          }
         }
       }
     }
 
-    // Import payment records
-    if (payments && Array.isArray(payments)) {
+    // ─── Batch import payment records ───
+    if (payments && Array.isArray(payments) && payments.length > 0) {
+      const validPayments: { id: string; src: any }[] = [];
       for (const payment of payments) {
+        const companyId = payment.companyId || (payment.companyName ? companyMap.get(payment.companyName.toLowerCase()) : null) || fallbackCompanyId;
+        if (!companyId) {
+          results.errors.push(`Payment ${payment.month}/${payment.year}: No matching company — you have no companies yet. Please create a company first.`);
+          continue;
+        }
+        validPayments.push({
+          id: 'c' + Date.now().toString(36) + Math.random().toString(36).substring(2, 8) + Math.random().toString(36).substring(2, 6),
+          src: { ...payment, _resolvedCompanyId: companyId, _resolvedMonth: payment.month || new Date().getMonth() + 1, _resolvedYear: payment.year || new Date().getFullYear() },
+        });
+      }
+
+      if (validPayments.length > 0) {
         try {
-          const companyId = payment.companyId || (payment.companyName ? companyMap.get(payment.companyName.toLowerCase()) : null) || fallbackCompanyId;
-          if (!companyId) {
-            results.errors.push(`Payment ${payment.month}/${payment.year}: No matching company — you have no companies yet. Please create a company first.`);
-            continue;
+          const now = new Date().toISOString();
+          const placeholders = validPayments.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+          const values: any[] = [];
+
+          for (const { id, src } of validPayments) {
+            values.push(
+              id,
+              user.id,
+              src._resolvedCompanyId,
+              src._resolvedMonth,
+              src._resolvedYear,
+              src.totalExpected || 0,
+              src.totalReceived || 0,
+              src.totalHMRC || 0,
+              src.totalDue || 0,
+              src.workedHours || 0,
+              'PENDING',
+              src.notes || null,
+              now,
+              now,
+            );
           }
 
-          const created = await db.paymentRecord.create({
-            data: {
-              userId: user.id,
-              companyId,
-              month: payment.month || new Date().getMonth() + 1,
-              year: payment.year || new Date().getFullYear(),
-              totalExpected: payment.totalExpected || 0,
-              totalReceived: payment.totalReceived || 0,
-              totalHMRC: payment.totalHMRC || 0,
-              totalDue: payment.totalDue || 0,
-              workedHours: payment.workedHours || 0,
-              status: 'PENDING',
-              notes: payment.notes || null,
-            },
-          });
-          createdPaymentIds.push(created.id);
-          results.paymentsCreated++;
+          const { getTursoClientIfAvailable } = await import('@/lib/db');
+          const tursoClient = getTursoClientIfAvailable();
+
+          if (tursoClient) {
+            await tursoClient.execute({
+              sql: `INSERT INTO PaymentRecord (id, userId, companyId, month, year, totalExpected, totalReceived, totalHMRC, totalDue, workedHours, status, notes, createdAt, updatedAt)
+                    VALUES ${placeholders}`,
+              args: values,
+            });
+          } else {
+            await Promise.all(validPayments.map(({ src }) =>
+              db.paymentRecord.create({
+                data: {
+                  userId: user.id,
+                  companyId: src._resolvedCompanyId,
+                  month: src._resolvedMonth,
+                  year: src._resolvedYear,
+                  totalExpected: src.totalExpected || 0,
+                  totalReceived: src.totalReceived || 0,
+                  totalHMRC: src.totalHMRC || 0,
+                  totalDue: src.totalDue || 0,
+                  workedHours: src.workedHours || 0,
+                  status: 'PENDING',
+                  notes: src.notes || null,
+                },
+              }).catch(() => {}),
+            ));
+          }
+
+          for (const { id } of validPayments) {
+            createdPaymentIds.push(id);
+          }
+          results.paymentsCreated += validPayments.length;
         } catch (e) {
-          results.errors.push(`Payment ${payment.month}/${payment.year}: ${e instanceof Error ? e.message : 'Failed to create'}`);
+          console.error('[IMPORT] Batch payment insert failed, falling back to sequential:', e);
+          for (const { src } of validPayments) {
+            try {
+              const created = await db.paymentRecord.create({
+                data: {
+                  userId: user.id,
+                  companyId: src._resolvedCompanyId,
+                  month: src._resolvedMonth,
+                  year: src._resolvedYear,
+                  totalExpected: src.totalExpected || 0,
+                  totalReceived: src.totalReceived || 0,
+                  totalHMRC: src.totalHMRC || 0,
+                  totalDue: src.totalDue || 0,
+                  workedHours: src.workedHours || 0,
+                  status: 'PENDING',
+                  notes: src.notes || null,
+                },
+              });
+              createdPaymentIds.push(created.id);
+              results.paymentsCreated++;
+            } catch (err) {
+              results.errors.push(`Payment ${src._resolvedMonth}/${src._resolvedYear}: ${err instanceof Error ? err.message : 'Failed to create'}`);
+            }
+          }
         }
       }
     }
@@ -166,7 +306,6 @@ export async function POST(request: NextRequest) {
       });
       results.importId = importLogEntry.id;
     } catch (logErr) {
-      // Import log creation failure should not block the import itself
       console.error('[IMPORT] Failed to create import log:', logErr);
     }
 

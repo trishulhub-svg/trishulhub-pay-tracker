@@ -5616,19 +5616,31 @@ function ImportView({ user }: { user: SessionUser }) {
   const handleConfirmImport = async () => {
     setConfirming(true);
     try {
-      const result = await apiFetch('/api/import/confirm', {
-        method: 'POST',
-        body: JSON.stringify({
-          shifts: editedShifts,
-          payments: editedPayments,
-          createCompanies,
-          fileName: imported?.fileName || file?.name || '',
-          fileType: imported?.fileType || '',
-          importType,
-        }),
-      });
-      setImportResult(result.results);
-      toast.success(`Imported ${result.results.shiftsCreated} shifts and ${result.results.paymentsCreated} payments!`);
+      // Use direct fetch with 60s timeout (not the global 15s apiFetch)
+      // because batch imports with many rows need more time
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60_000);
+      try {
+        const res = await fetch('/api/import/confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            shifts: editedShifts,
+            payments: editedPayments,
+            createCompanies,
+            fileName: imported?.fileName || file?.name || '',
+            fileType: imported?.fileType || '',
+            importType,
+          }),
+          signal: controller.signal,
+        });
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error || 'Failed to save imported data');
+        setImportResult(result.results);
+        toast.success(`Imported ${result.results.shiftsCreated} shifts and ${result.results.paymentsCreated} payments!`);
+      } finally {
+        clearTimeout(timeoutId);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to save imported data');
     } finally {
