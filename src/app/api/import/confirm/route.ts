@@ -75,6 +75,16 @@ async function verifyInsertedIds(tursoClient: any, ids: string[], table: string)
   }
 }
 
+// IMP-027: Split large arrays into chunks to stay within SQLite's 999 variable limit
+// 14 params per row → max ~50 rows per batch (14 × 50 = 700, safely under 999)
+function chunkArray<T>(arr: T[], chunkSize: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < arr.length; i += chunkSize) {
+    chunks.push(arr.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
 // POST /api/import/confirm — Save imported data after user review
 export async function POST(request: NextRequest) {
   try {
@@ -110,6 +120,20 @@ export async function POST(request: NextRequest) {
       importId: '' as string,
     };
 
+    // IMP-021: Cap row counts to prevent resource exhaustion
+    const MAX_SHIFTS = 200;
+    const MAX_PAYMENTS = 200;
+    let safeShifts = shifts || [];
+    let safePayments = payments || [];
+    if (safeShifts.length > MAX_SHIFTS) {
+      results.errors.push(`Only first ${MAX_SHIFTS} of ${safeShifts.length} shifts will be imported (max limit). Split your file into smaller imports for the rest.`);
+      safeShifts = safeShifts.slice(0, MAX_SHIFTS);
+    }
+    if (safePayments.length > MAX_PAYMENTS) {
+      results.errors.push(`Only first ${MAX_PAYMENTS} of ${safePayments.length} payments will be imported (max limit). Split your file into smaller imports for the rest.`);
+      safePayments = safePayments.slice(0, MAX_PAYMENTS);
+    }
+
     const createdShiftIds: string[] = [];
     const createdPaymentIds: string[] = [];
     const createdCompanyIds: string[] = [];
@@ -127,8 +151,8 @@ export async function POST(request: NextRequest) {
 
     // Create new companies if needed and requested
     const allCompanyNames = new Set<string>();
-    if (shifts) shifts.forEach((s: any) => { if (s.companyName) allCompanyNames.add(s.companyName); });
-    if (payments) payments.forEach((p: any) => { if (p.companyName) allCompanyNames.add(p.companyName); });
+    if (safeShifts.length > 0) safeShifts.forEach((s: any) => { if (s.companyName) allCompanyNames.add(s.companyName); });
+    if (safePayments.length > 0) safePayments.forEach((p: any) => { if (p.companyName) allCompanyNames.add(p.companyName); });
 
     for (const name of allCompanyNames) {
       const existingId = companyMap.get(name.toLowerCase());
@@ -157,7 +181,7 @@ export async function POST(request: NextRequest) {
 
     // ─── IMP-001: Efficient dedup — only fetch keys we need, not full rows ───
     const existingShiftKeys = new Set<string>();
-    if (tursoClient && shifts && shifts.length > 0) {
+    if (tursoClient && safeShifts.length > 0) {
       // Direct SQL: only select date, companyId, shiftType — not the full row
       try {
         const r = await tursoClient.execute({
@@ -174,7 +198,7 @@ export async function POST(request: NextRequest) {
           existingShiftKeys.add(`${s.userId}:${s.companyId}:${s.date}:${s.shiftType || 'REGULAR'}`);
         }
       }
-    } else if (shifts && shifts.length > 0) {
+    } else if (safeShifts.length > 0) {
       const existingShifts = await db.shift.findMany({ where: { userId: user.id } });
       for (const s of existingShifts) {
         existingShiftKeys.add(`${s.userId}:${s.companyId}:${s.date}:${s.shiftType || 'REGULAR'}`);
@@ -183,7 +207,7 @@ export async function POST(request: NextRequest) {
 
     // ─── Efficient payment dedup ───
     const existingPaymentKeys = new Set<string>();
-    if (tursoClient && payments && payments.length > 0) {
+    if (tursoClient && safePayments.length > 0) {
       try {
         const r = await tursoClient.execute({
           sql: 'SELECT companyId, month, year FROM PaymentRecord WHERE userId = ?',
@@ -198,7 +222,7 @@ export async function POST(request: NextRequest) {
           existingPaymentKeys.add(`${p.userId}:${p.companyId}:${p.month}:${p.year}`);
         }
       }
-    } else if (payments && payments.length > 0) {
+    } else if (safePayments.length > 0) {
       const existingPayments = await db.paymentRecord.findMany({ where: { userId: user.id } });
       for (const p of existingPayments) {
         existingPaymentKeys.add(`${p.userId}:${p.companyId}:${p.month}:${p.year}`);
@@ -206,10 +230,10 @@ export async function POST(request: NextRequest) {
     }
 
     // ─── Batch import shifts ───
-    if (shifts && Array.isArray(shifts) && shifts.length > 0) {
+    if (safeShifts.length > 0) {
       const validShifts: { id: string; src: any }[] = [];
 
-      for (const shift of shifts) {
+      for (const shift of safeShifts) {
         // IMP-018: Validate each shift before processing
         const validation = validateShift(shift);
         if (!validation.valid) {
@@ -261,29 +285,36 @@ export async function POST(request: NextRequest) {
       if (validShifts.length > 0) {
         try {
           const now = new Date().toISOString();
-          const placeholders = validShifts.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
-          const values: any[] = [];
-
-          for (const { id, src } of validShifts) {
-            values.push(
-              id, user.id, src._resolvedCompanyId, src.date,
-              src.startTime || '09:00', src.endTime || '17:00',
-              src._breakMinutes, src._resolvedTotalHours,
-              src._resolvedShiftType, src._payRate,
-              src._notes, src.client || null, now, now,
-            );
-          }
 
           if (tursoClient) {
-            await tursoClient.execute({
-              sql: `INSERT INTO Shift (id, userId, companyId, date, startTime, endTime, breakMinutes, totalHours, shiftType, payRate, notes, client, createdAt, updatedAt)
-                    VALUES ${placeholders}`,
-              args: values,
-            });
+            // IMP-027: Chunk batch inserts to stay within SQLite's 999 variable limit
+            const BATCH_SIZE = 50;
+            const shiftChunks = chunkArray(validShifts, BATCH_SIZE);
+            const allInsertedIds: string[] = [];
 
-            const verifiedIds = await verifyInsertedIds(tursoClient, validShifts.map(v => v.id), 'Shift');
-            if (verifiedIds.length < validShifts.length) {
-              const missing = validShifts.length - verifiedIds.length;
+            for (const chunk of shiftChunks) {
+              const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+              const values: any[] = [];
+              for (const { id, src } of chunk) {
+                values.push(
+                  id, user.id, src._resolvedCompanyId, src.date,
+                  src.startTime || '09:00', src.endTime || '17:00',
+                  src._breakMinutes, src._resolvedTotalHours,
+                  src._resolvedShiftType, src._payRate,
+                  src._notes, src.client || null, now, now,
+                );
+              }
+              await tursoClient.execute({
+                sql: `INSERT INTO Shift (id, userId, companyId, date, startTime, endTime, breakMinutes, totalHours, shiftType, payRate, notes, client, createdAt, updatedAt)
+                      VALUES ${placeholders}`,
+                args: values,
+              });
+              allInsertedIds.push(...chunk.map(v => v.id));
+            }
+
+            const verifiedIds = await verifyInsertedIds(tursoClient, allInsertedIds, 'Shift');
+            if (verifiedIds.length < allInsertedIds.length) {
+              const missing = allInsertedIds.length - verifiedIds.length;
               results.errors.push(`${missing} shift(s) failed to insert silently during batch operation.`);
             }
             verifiedIds.forEach(id => createdShiftIds.push(id));
@@ -333,10 +364,10 @@ export async function POST(request: NextRequest) {
     }
 
     // ─── Batch import payment records ───
-    if (payments && Array.isArray(payments) && payments.length > 0) {
+    if (safePayments.length > 0) {
       const validPayments: { id: string; src: any }[] = [];
 
-      for (const payment of payments) {
+      for (const payment of safePayments) {
         // IMP-018: Validate each payment before processing
         const pValidation = validatePayment(payment);
         if (!pValidation.valid) {
@@ -384,28 +415,35 @@ export async function POST(request: NextRequest) {
       if (validPayments.length > 0) {
         try {
           const now = new Date().toISOString();
-          const placeholders = validPayments.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
-          const values: any[] = [];
-
-          for (const { id, src } of validPayments) {
-            values.push(
-              id, user.id, src._resolvedCompanyId, src._resolvedMonth, src._resolvedYear,
-              src._totalExpected, src._totalReceived, src._totalHMRC,
-              src._totalDue, src._workedHours, 'PENDING',
-              src._notes, now, now,
-            );
-          }
 
           if (tursoClient) {
-            await tursoClient.execute({
-              sql: `INSERT INTO PaymentRecord (id, userId, companyId, month, year, totalExpected, totalReceived, totalHMRC, totalDue, workedHours, status, notes, createdAt, updatedAt)
-                    VALUES ${placeholders}`,
-              args: values,
-            });
+            // IMP-027: Chunk batch inserts to stay within SQLite's 999 variable limit
+            const BATCH_SIZE = 50;
+            const paymentChunks = chunkArray(validPayments, BATCH_SIZE);
+            const allInsertedIds: string[] = [];
 
-            const verifiedIds = await verifyInsertedIds(tursoClient, validPayments.map(v => v.id), 'PaymentRecord');
-            if (verifiedIds.length < validPayments.length) {
-              const missing = validPayments.length - verifiedIds.length;
+            for (const chunk of paymentChunks) {
+              const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+              const values: any[] = [];
+              for (const { id, src } of chunk) {
+                values.push(
+                  id, user.id, src._resolvedCompanyId, src._resolvedMonth, src._resolvedYear,
+                  src._totalExpected, src._totalReceived, src._totalHMRC,
+                  src._totalDue, src._workedHours, 'PENDING',
+                  src._notes, now, now,
+                );
+              }
+              await tursoClient.execute({
+                sql: `INSERT INTO PaymentRecord (id, userId, companyId, month, year, totalExpected, totalReceived, totalHMRC, totalDue, workedHours, status, notes, createdAt, updatedAt)
+                      VALUES ${placeholders}`,
+                args: values,
+              });
+              allInsertedIds.push(...chunk.map(v => v.id));
+            }
+
+            const verifiedIds = await verifyInsertedIds(tursoClient, allInsertedIds, 'PaymentRecord');
+            if (verifiedIds.length < allInsertedIds.length) {
+              const missing = allInsertedIds.length - verifiedIds.length;
               results.errors.push(`${missing} payment(s) failed to insert silently during batch operation.`);
             }
             verifiedIds.forEach(id => createdPaymentIds.push(id));
@@ -456,7 +494,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Create an import log entry
+    // Create an import log entry — IMP-025: Retry once + warn user on failure
     try {
       const importLogEntry = await db.importLog.create({
         data: {
@@ -475,7 +513,29 @@ export async function POST(request: NextRequest) {
       });
       results.importId = importLogEntry.id;
     } catch (logErr) {
-      console.error('[IMPORT] Failed to create import log:', logErr);
+      // IMP-025: Retry once on log creation failure
+      console.warn('[IMPORT] Import log creation failed, retrying:', logErr);
+      try {
+        const importLogEntry = await db.importLog.create({
+          data: {
+            userId: user.id,
+            fileName: fileName || null,
+            fileType: fileType || null,
+            importType: importType || 'auto',
+            shiftsCount: results.shiftsCreated,
+            paymentsCount: results.paymentsCreated,
+            companiesCreated: results.companiesCreated,
+            shiftIds: createdShiftIds,
+            paymentIds: createdPaymentIds,
+            companyIds: createdCompanyIds,
+            reversed: false,
+          },
+        });
+        results.importId = importLogEntry.id;
+      } catch {
+        // IMP-025: Warn user that they won't be able to reverse this import
+        results.errors.push('Import saved successfully, but history logging failed. You may not be able to reverse this import. Contact support if needed.');
+      }
     }
 
     const msgParts = [

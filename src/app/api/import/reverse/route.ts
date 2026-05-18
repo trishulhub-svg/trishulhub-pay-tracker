@@ -90,15 +90,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'This import has already been reversed' }, { status: 400 });
     }
 
+    // IMP-026: Atomic check-and-update to prevent double-reverse race condition
+    const { getTursoClientIfAvailable } = await import('@/lib/db');
+    const tursoClient = getTursoClientIfAvailable();
+
+    if (tursoClient) {
+      // Try atomic UPDATE ... WHERE reversed = 0 first
+      try {
+        const atomicUpdate = await tursoClient.execute({
+          sql: 'UPDATE ImportLog SET reversed = 1, reversedAt = ? WHERE id = ? AND reversed = 0',
+          args: [new Date().toISOString(), importId],
+        });
+        // If no rows affected, another request already reversed it
+        if (atomicUpdate.rowsAffected === 0) {
+          return NextResponse.json({ error: 'This import has already been reversed' }, { status: 400 });
+        }
+      } catch {
+        // If atomic update fails (e.g. column type mismatch), fall through to normal flow
+      }
+    }
+
     const results = {
       shiftsDeleted: 0,
       paymentsDeleted: 0,
       companiesDeleted: 0,
       errors: [] as string[],
     };
-
-    const { getTursoClientIfAvailable } = await import('@/lib/db');
-    const tursoClient = getTursoClientIfAvailable();
 
     // IMP-011: Accurate delete counts
     results.shiftsDeleted = await batchDeleteWithCount(tursoClient, importEntry.shiftIds || [], 'Shift');

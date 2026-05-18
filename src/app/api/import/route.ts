@@ -213,16 +213,23 @@ function mapRowToShift(row: Record<string, string>, companies: any[]): any | nul
   const companyId = findCompanyMatch(companyName, companies);
   const breakMinutesNum = breakMinutesRaw ? parseNumber(breakMinutesRaw) : 0;
 
+  // IMP-023: Use null-safe defaults — normalizeDate/normalizeTime now return null
+  const parsedDate = normalizeDate(date);
+  if (!parsedDate) return null; // Skip rows with unparseable dates
+
+  const startTime = normalizeTime(startTimeRaw) || '09:00';
+  const endTime = normalizeTime(endTimeRaw) || '17:00';
+
   // IMP-012: Use shared calcTotalHours from lib/import-utils
   let totalHours = totalHoursRaw ? parseNumber(totalHoursRaw) : 0;
   if (!totalHours && startTimeRaw && endTimeRaw) {
-    totalHours = calcTotalHours(normalizeTime(startTimeRaw), normalizeTime(endTimeRaw), breakMinutesNum);
+    totalHours = calcTotalHours(startTime, endTime, breakMinutesNum);
   }
 
   return {
-    date: normalizeDate(date),
-    startTime: normalizeTime(startTimeRaw),
-    endTime: normalizeTime(endTimeRaw),
+    date: parsedDate,
+    startTime,
+    endTime,
     breakMinutes: breakMinutesNum,
     totalHours,
     payRate: payRate ? parseNumber(payRate) : 0,
@@ -252,8 +259,9 @@ function mapRowToPayment(row: Record<string, string>, companies: any[]): any | n
   const companyId = findCompanyMatch(companyName, companies);
 
   return {
-    month: month ? parseMonth(month) : new Date().getMonth() + 1,
-    year: year ? parseYear(year) : new Date().getFullYear(),
+    // IMP-023: parseMonth/parseYear return null for unparseable input — fall back to current
+    month: month ? (parseMonth(month) ?? new Date().getMonth() + 1) : new Date().getMonth() + 1,
+    year: year ? (parseYear(year) ?? new Date().getFullYear()) : new Date().getFullYear(),
     companyName: companyName || null,
     companyId,
     companyMatched: !!companyId,
@@ -514,7 +522,8 @@ function parseNumber(val: string | undefined): number {
   return isNaN(num) ? 0 : Math.round(num * 100) / 100;
 }
 
-function parseMonth(val: string): number {
+// IMP-023: Return null for unparseable values so caller can warn the user
+function parseMonth(val: string): number | null {
   // Try numeric first
   const num = parseInt(val);
   if (num >= 1 && num <= 12) return num;
@@ -525,44 +534,34 @@ function parseMonth(val: string): number {
   const idx = months.findIndex(m => lower.includes(m));
   if (idx >= 0) return idx + 1;
 
-  // Default to current month
-  return new Date().getMonth() + 1;
+  return null;
 }
 
-function parseYear(val: string): number {
+// IMP-023: Return null for unparseable values so caller can warn the user
+function parseYear(val: string): number | null {
   const num = parseInt(val);
   if (num >= 2000 && num <= 2100) return num;
   if (num >= 0 && num <= 99) return 2000 + num;
-  return new Date().getFullYear();
+  return null;
 }
 
-function normalizeDate(val: string | undefined): string {
-  if (!val) return new Date().toISOString().split('T')[0];
+// IMP-023: Return null for unparseable dates so caller can warn the user
+function normalizeDate(val: string | undefined): string | null {
+  if (!val) return null;
   try {
-    // Try various date formats
     const cleaned = val.trim();
 
-    // DD/MM/YYYY or DD-MM-YYYY (UK format)
+    // YYYY-MM-DD (ISO format — check first as it's unambiguous)
+    const isoMatch = cleaned.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+    if (isoMatch) {
+      return `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`;
+    }
+
+    // DD/MM/YYYY or DD-MM-YYYY (UK format — default for UK payroll app)
     const ukMatch = cleaned.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
     if (ukMatch) {
       const [, day, month, year] = ukMatch;
       return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-    }
-
-    // MM/DD/YYYY (US format - less common in UK)
-    const usMatch = cleaned.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-    if (usMatch) {
-      // If first number > 12, it must be a day (UK format)
-      const first = parseInt(usMatch[1]);
-      if (first > 12) {
-        return `${usMatch[3]}-${usMatch[2].padStart(2, '0')}-${usMatch[1].padStart(2, '0')}`;
-      }
-    }
-
-    // YYYY-MM-DD (ISO format)
-    const isoMatch = cleaned.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
-    if (isoMatch) {
-      return `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`;
     }
 
     // Fallback: let JS parse it
@@ -571,14 +570,15 @@ function normalizeDate(val: string | undefined): string {
       return d.toISOString().split('T')[0];
     }
 
-    return new Date().toISOString().split('T')[0];
+    return null;
   } catch {
-    return new Date().toISOString().split('T')[0];
+    return null;
   }
 }
 
-function normalizeTime(val: string | undefined): string {
-  if (!val) return '09:00';
+// IMP-023: Return null for unparseable times so caller can use sensible defaults
+function normalizeTime(val: string | undefined): string | null {
+  if (!val) return null;
   try {
     const cleaned = val.trim().toUpperCase();
 
@@ -599,9 +599,9 @@ function normalizeTime(val: string | undefined): string {
       return `${h24Match[1].padStart(2, '0')}:${h24Match[2]}`;
     }
 
-    return '09:00';
+    return null;
   } catch {
-    return '09:00';
+    return null;
   }
 }
 
