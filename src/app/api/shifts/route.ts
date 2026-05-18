@@ -6,6 +6,28 @@ import { getTursoClientIfAvailable } from '@/lib/db';
 // SHI-020: Valid shift types enum
 const VALID_SHIFT_TYPES = ['REGULAR', 'OVERTIME', 'HOLIDAY', 'SICK', 'ON_CALL'] as const;
 
+// SHI-012: Simple in-memory rate limiter — max 50 creates per user per minute
+const shiftCreateCounts = new Map<string, { count: number; resetTime: number }>();
+function checkRateLimit(userId: string): boolean {
+  const now = Date.now();
+  const entry = shiftCreateCounts.get(userId);
+  if (!entry || now > entry.resetTime) {
+    shiftCreateCounts.set(userId, { count: 1, resetTime: now + 60_000 });
+    return true;
+  }
+  if (entry.count >= 50) return false;
+  entry.count++;
+  return true;
+}
+
+// Clean up stale entries every 5 minutes to prevent memory leak
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of shiftCreateCounts) {
+    if (now > entry.resetTime) shiftCreateCounts.delete(key);
+  }
+}, 5 * 60_000);
+
 export async function GET(request: NextRequest) {
   try {
     const user = await getSession();
@@ -144,6 +166,11 @@ export async function POST(request: NextRequest) {
     const user = await getSession();
     if (!user) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
+    // SHI-012: Rate limit — max 50 shift creates per user per minute
+    if (!checkRateLimit(user.id)) {
+      return NextResponse.json({ error: 'Too many requests. Please wait a minute before adding more shifts.' }, { status: 429 });
     }
 
     const body = await request.json();

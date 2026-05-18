@@ -2946,7 +2946,22 @@ function ShiftsView({ user }: { user: SessionUser }) {
   const [editShift, setEditShift] = useState<Shift | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  useEffect(() => { fetchShifts(); fetchCompanies(); }, []);
+  useEffect(() => { fetchCompanies(); }, []);
+
+  // SHI-009: Derive month/year from current view state for smart API fetching
+  const viewMonth = (() => {
+    if (viewMode === 'month') return { month: monthDate.getMonth() + 1, year: monthDate.getFullYear() };
+    if (viewMode === 'week') return { month: weekStart.getMonth() + 1, year: weekStart.getFullYear() };
+    if (viewMode === 'day') return { month: dayDate.getMonth() + 1, year: dayDate.getFullYear() };
+    return null;
+  })();
+
+  // SHI-009: Re-fetch shifts whenever view mode or date context changes
+  useEffect(() => {
+    if (viewMonth) {
+      fetchShifts(viewMonth.month, viewMonth.year);
+    }
+  }, [viewMode, viewMonth?.month, viewMonth?.year]);
 
   const fetchCompanies = async () => {
     try {
@@ -2955,10 +2970,17 @@ function ShiftsView({ user }: { user: SessionUser }) {
     } catch { /* ignore */ }
   };
 
-  const fetchShifts = async () => {
+  // SHI-009: Accept month/year params — only fetches shifts for the visible period
+  const fetchShifts = async (month?: number, year?: number) => {
     setLoading(true);
     try {
-      const data = await apiFetch('/api/shifts');
+      const params = new URLSearchParams();
+      params.set('limit', '500'); // SHI-009: Fetch up to 500 — enough for a single month
+      if (month && year) {
+        params.set('month', String(month));
+        params.set('year', String(year));
+      }
+      const data = await apiFetch(`/api/shifts?${params.toString()}`);
       setShifts(data.shifts || []);
     } catch {
       toast.error('Failed to load shifts');

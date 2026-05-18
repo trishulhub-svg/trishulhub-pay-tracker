@@ -698,27 +698,12 @@ export const shift = {
       const d = data.data
       const id = generateId()
       const now = nowISO()
-      // Try with client column first; if it doesn't exist yet (pre-migration), fall back without it
-      try {
-        await client.execute({
-          sql: `INSERT INTO Shift (id, userId, companyId, date, startTime, endTime, breakMinutes, totalHours, shiftType, payRate, notes, client, createdAt, updatedAt)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          args: [id, d.userId, d.companyId, d.date, d.startTime, d.endTime, d.breakMinutes ?? 0, d.totalHours ?? 0, d.shiftType ?? 'REGULAR', d.payRate ?? 0, d.notes ?? null, d.client ?? null, now, now],
-        })
-      } catch (insertErr: any) {
-        if (String(insertErr).includes('client') && String(insertErr).includes('no column')) {
-          // Column doesn't exist yet — run migration automatically
-          console.log('⚠️ client column missing, running auto-migration...')
-          try { await client.execute('ALTER TABLE Shift ADD COLUMN client TEXT') } catch {}
-          await client.execute({
-            sql: `INSERT INTO Shift (id, userId, companyId, date, startTime, endTime, breakMinutes, totalHours, shiftType, payRate, notes, client, createdAt, updatedAt)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            args: [id, d.userId, d.companyId, d.date, d.startTime, d.endTime, d.breakMinutes ?? 0, d.totalHours ?? 0, d.shiftType ?? 'REGULAR', d.payRate ?? 0, d.notes ?? null, d.client ?? null, now, now],
-          })
-        } else {
-          throw insertErr
-        }
-      }
+      // SHI-011: Removed auto-migration try/catch — client column already exists in production
+      await client.execute({
+        sql: `INSERT INTO Shift (id, userId, companyId, date, startTime, endTime, breakMinutes, totalHours, shiftType, payRate, notes, client, createdAt, updatedAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [id, d.userId, d.companyId, d.date, d.startTime, d.endTime, d.breakMinutes ?? 0, d.totalHours ?? 0, d.shiftType ?? 'REGULAR', d.payRate ?? 0, d.notes ?? null, d.client ?? null, now, now],
+      })
       return this.findUnique({ where: { id } })
     }
     const prisma = getPrismaClient()
@@ -737,18 +722,8 @@ export const shift = {
         values.push(toSqlValue(val))
       }
       values.push(args.where.id)
-      try {
-        await client.execute({ sql: `UPDATE Shift SET ${sets.join(', ')} WHERE id = ?`, args: values })
-      } catch (updateErr: any) {
-        // If client column doesn't exist yet, auto-migrate and retry
-        if (String(updateErr).includes('client') && (String(updateErr).includes('no column') || String(updateErr).includes('no such column'))) {
-          console.log('⚠️ client column missing during update, running auto-migration...')
-          try { await client.execute('ALTER TABLE Shift ADD COLUMN client TEXT') } catch {}
-          await client.execute({ sql: `UPDATE Shift SET ${sets.join(', ')} WHERE id = ?`, args: values })
-        } else {
-          throw updateErr
-        }
-      }
+      // SHI-011: Removed auto-migration try/catch — client column already exists in production
+      await client.execute({ sql: `UPDATE Shift SET ${sets.join(', ')} WHERE id = ?`, args: values })
       return this.findUnique({ where: { id: args.where.id } })
     }
     const prisma = getPrismaClient()
