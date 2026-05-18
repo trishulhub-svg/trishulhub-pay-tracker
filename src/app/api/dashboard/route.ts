@@ -62,7 +62,8 @@ export async function GET(request: NextRequest) {
       const companyArgs = companyId ? [companyId] : [];
 
       // 1. Overall totals — single aggregate query (was: load ALL records + JS reduce)
-      const [totalsRes, recentRes, compRes, companyStatsRes] = await Promise.all([
+      // DASH-004: Added shiftSummary aggregate query (was: load ALL current-month shifts)
+      const [totalsRes, recentRes, compRes, companyStatsRes, shiftSummaryRes] = await Promise.all([
         tursoClient.execute({
           sql: `SELECT
             COUNT(*) as totalRecords,
@@ -126,6 +127,16 @@ export async function GET(request: NextRequest) {
           WHERE pr.userId = ?${companyFilter}
           GROUP BY pr.companyId`,
           args: [user.id, user.id, ...companyArgs],
+        }),
+        // DASH-004: Shift summary via SQL aggregate (was: load ALL shifts + JS reduce)
+        tursoClient.execute({
+          sql: `SELECT
+            COALESCE(SUM(totalHours), 0) as totalHours,
+            COUNT(*) as totalShifts,
+            COALESCE(SUM(breakMinutes), 0) as totalBreakMinutes
+          FROM Shift
+          WHERE userId = ? AND date >= ? AND date < ?`,
+          args: [user.id, currentMonthStart, currentMonthEnd],
         }),
       ]);
 
@@ -204,10 +215,11 @@ export async function GET(request: NextRequest) {
           referralCount,
           isPremium: user.isPremium,
         },
+        // DASH-004: Use SQL-aggregated shift summary instead of loaded rows
         shiftSummary: {
-          totalHours: currentMonthShifts.reduce((acc, s) => acc + Number(s.totalHours || 0), 0),
-          totalShifts: currentMonthShifts.length,
-          totalBreakMinutes: currentMonthShifts.reduce((acc, s) => acc + Number(s.breakMinutes || 0), 0),
+          totalHours: Number(shiftSummaryRes.rows[0]?.totalHours || 0),
+          totalShifts: Number(shiftSummaryRes.rows[0]?.totalShifts || 0),
+          totalBreakMinutes: Number(shiftSummaryRes.rows[0]?.totalBreakMinutes || 0),
           month: currentMonth,
           year: currentYear,
         },
@@ -308,8 +320,7 @@ export async function GET(request: NextRequest) {
     }
   } catch (error) {
     console.error('Dashboard error:', error);
-    const msg = error instanceof Error ? error.message : String(error);
-    // Don't leak internal details in production, but include enough to debug
-    return NextResponse.json({ error: `Dashboard error: ${msg}` }, { status: 500 });
+    // DASH-001: Don't leak internal error details to client
+    return NextResponse.json({ error: 'Failed to load dashboard data. Please try again.' }, { status: 500 });
   }
 }

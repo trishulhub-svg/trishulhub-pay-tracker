@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, getTursoClientIfAvailable } from '@/lib/db';
 import { getSession } from '@/lib/session';
 
 export async function GET() {
@@ -63,18 +63,42 @@ export async function GET() {
       referredBy: s.referredBy || null,
     }));
 
-    // Monthly signups trend (last 6 months)
-    const monthlySignups: Array<{ month: string; count: number }> = [];
-    for (let i = 5; i >= 0; i--) {
-      const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
-      const count = await db.user.count({
-        where: { createdAt: { gte: monthStart, lt: monthEnd } },
-      });
-      monthlySignups.push({
-        month: monthStart.toLocaleString('en-GB', { month: 'short', year: 'numeric' }),
-        count,
-      });
+    // DASH-013: Monthly signups trend (last 6 months) — single GROUP BY query instead of 6 sequential
+    const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    let monthlySignups: Array<{ month: string; count: number }>;
+
+    const tursoClient = getTursoClientIfAvailable();
+    if (tursoClient) {
+      try {
+        const res = await tursoClient.execute({
+          sql: `SELECT
+            strftime('%Y-%m', createdAt) as ym,
+            COUNT(*) as cnt
+          FROM User
+          WHERE createdAt >= ?
+          GROUP BY strftime('%Y-%m', createdAt)
+          ORDER BY ym ASC`,
+          args: [sixMonthsAgo.toISOString()],
+        });
+        const monthCounts = new Map<string, number>();
+        for (const row of res.rows) {
+          monthCounts.set(row.ym as string, Number(row.cnt));
+        }
+        monthlySignups = [];
+        for (let i = 5; i >= 0; i--) {
+          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          monthlySignups.push({
+            month: d.toLocaleString('en-GB', { month: 'short', year: 'numeric' }),
+            count: monthCounts.get(ym) || 0,
+          });
+        }
+      } catch {
+        // Fallback to ORM if Turso GROUP BY fails
+        monthlySignups = await buildMonthlySignupsFallback(now);
+      }
+    } else {
+      monthlySignups = await buildMonthlySignupsFallback(now);
     }
 
     return NextResponse.json({
@@ -96,4 +120,21 @@ export async function GET() {
     console.error('Admin stats error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
+}
+
+// DASH-013: Fallback for local dev — sequential count queries
+async function buildMonthlySignupsFallback(now: Date): Promise<Array<{ month: string; count: number }>> {
+  const monthlySignups: Array<{ month: string; count: number }> = [];
+  for (let i = 5; i >= 0; i--) {
+    const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+    const count = await db.user.count({
+      where: { createdAt: { gte: monthStart, lt: monthEnd } },
+    });
+    monthlySignups.push({
+      month: monthStart.toLocaleString('en-GB', { month: 'short', year: 'numeric' }),
+      count,
+    });
+  }
+  return monthlySignups;
 }
