@@ -4393,6 +4393,23 @@ function SettingsView({ user, onLogout, theme, setTheme }: { user: SessionUser; 
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(user.name);
   const [nameSaving, setNameSaving] = useState(false);
+  const [resetSending, setResetSending] = useState(false);
+
+  // SET-019: Send password reset email instead of logging user out
+  const handleChangePassword = async () => {
+    setResetSending(true);
+    try {
+      await apiFetch('/api/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email: user.email }),
+      });
+      toast.success('Password reset code sent to your email');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to send reset code');
+    } finally {
+      setResetSending(false);
+    }
+  };
 
   const themeOptions = [
     { value: 'light', label: 'Light', icon: Sun },
@@ -4521,9 +4538,10 @@ function SettingsView({ user, onLogout, theme, setTheme }: { user: SessionUser; 
           <Button variant="ghost" className="w-full justify-start h-12 min-h-[44px]" onClick={() => setCurrentView('referrals')}>
             <Users className="h-4 w-4 mr-3 text-muted-foreground" /> Referral Programme
           </Button>
-          {/* SET-004: Change Password shortcut — uses existing forgot-password flow */}
-          <Button variant="ghost" className="w-full justify-start h-12 min-h-[44px]" onClick={onLogout}>
-            <KeyRound className="h-4 w-4 mr-3 text-muted-foreground" /> Change Password
+          {/* SET-019: Change Password — sends reset email, doesn't log out */}
+          <Button variant="ghost" className="w-full justify-start h-12 min-h-[44px]" onClick={handleChangePassword} disabled={resetSending}>
+            <KeyRound className="h-4 w-4 mr-3 text-muted-foreground" />
+            {resetSending ? 'Sending Reset Code...' : 'Change Password'}
           </Button>
           {user.role === 'ADMIN' && (
             <Button variant="ghost" className="w-full justify-start h-12 min-h-[44px] text-purple-600 dark:text-purple-400" onClick={() => setCurrentView('admin')}>
@@ -5049,15 +5067,20 @@ function SmtpSettingsView() {
     }
   };
 
-  // SET-006: Only send values that the user has explicitly typed (non-sensitive) or changed
+  // SET-018: Only send fields that the user has actually typed into (non-empty)
+  // Prevents accidental deletion of existing DB values when user clicks Save with blank fields
   const handleSave = async () => {
     setSaving(true);
     try {
       const settingsToSave: Record<string, string> = {};
       for (const [key, value] of Object.entries(form)) {
-        // Skip sensitive keys unless user typed a new value
-        if (key === 'BREVO_API_KEY' && !value.trim()) continue;
-        settingsToSave[key] = value || '';
+        if (!value.trim()) continue; // Skip empty fields — don't delete existing values
+        settingsToSave[key] = value.trim();
+      }
+      if (Object.keys(settingsToSave).length === 0) {
+        toast.error('No changes to save — enter values in the fields above');
+        setSaving(false);
+        return;
       }
       const result = await apiFetch('/api/admin/settings', {
         method: 'PUT',
@@ -5376,18 +5399,15 @@ function AiSettingsView() {
     }
   };
 
-  // SET-011: Test connection via server-side proxy (no API key exposure in browser)
+  // SET-016: Test connection via server-side POST endpoint (real API call, not just save)
   const handleTest = async () => {
     setTesting(true);
     setTestResult(null);
     try {
       const res = await apiFetch('/api/admin/settings', {
-        method: 'PUT',
-        body: JSON.stringify({ settings: { ...form } }),
+        method: 'POST',
       });
-      // Use a dedicated test endpoint if available, otherwise just verify save succeeded
-      setTestResult({ success: true, message: 'Settings saved successfully. AI import is ready to use.' });
-      fetchSettings();
+      setTestResult({ success: !!res.success, message: res.message || 'Test complete' });
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Connection failed';
       setTestResult({ success: false, message: msg });

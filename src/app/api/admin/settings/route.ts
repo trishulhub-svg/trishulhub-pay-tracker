@@ -87,6 +87,65 @@ export async function GET() {
   }
 }
 
+// SET-016: POST /api/admin/settings — test AI API key with a minimal completion call
+export async function POST(request: Request) {
+  try {
+    const user = await getSession();
+    if (!user || user.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+    }
+
+    // Read settings to get the API key (DB > env > fallback)
+    const allSettings = await db.setting.getAll();
+    const apiKey = allSettings.ZAI_API_KEY || process.env.ZAI_API_KEY || '';
+    const model = allSettings.ZAI_MODEL || process.env.ZAI_MODEL || 'glm-4.5-flash';
+
+    if (!apiKey) {
+      return NextResponse.json({ success: false, message: 'No Z.AI API key configured. Please save an API key first.' });
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15_000);
+
+    try {
+      const response = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: 'Reply with only: OK' }],
+          max_tokens: 5,
+          temperature: 0,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errText = await response.text();
+        return NextResponse.json({
+          success: false,
+          message: `API returned HTTP ${response.status}. ${response.status === 401 ? 'Invalid API key.' : 'Check your API key and try again.'}`,
+        });
+      }
+
+      return NextResponse.json({ success: true, message: `Connected successfully using model: ${model}` });
+    } catch (fetchErr: any) {
+      clearTimeout(timeoutId);
+      if (fetchErr.name === 'AbortError') {
+        return NextResponse.json({ success: false, message: 'Connection timed out after 15 seconds. Check your network.' });
+      }
+      return NextResponse.json({ success: false, message: `Connection failed: ${fetchErr.message}` });
+    }
+  } catch (error) {
+    console.error('Settings test error:', error);
+    return NextResponse.json({ success: false, message: 'Failed to test connection.' }, { status: 500 });
+  }
+}
+
 // PUT /api/admin/settings — update settings
 export async function PUT(request: Request) {
   try {
