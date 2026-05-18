@@ -4,11 +4,13 @@
 // to update SMTP credentials from the UI without redeploying.
 
 import nodemailer from 'nodemailer';
+import { randomInt } from 'crypto';
 import { db } from './db';
 
 // Cached settings (refreshed every 5 minutes)
 let cachedSettings: Record<string, string> | null = null;
 let settingsCacheTime = 0;
+let settingsFetchPromise: Promise<Record<string, string>> | null = null; // SET-009: de-dup concurrent fetches
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 async function getBrevoSettings(): Promise<Record<string, string>> {
@@ -17,16 +19,26 @@ async function getBrevoSettings(): Promise<Record<string, string>> {
     return cachedSettings;
   }
 
-  try {
-    const allSettings = await db.setting.getAll();
-    cachedSettings = allSettings;
-    settingsCacheTime = Date.now();
-    return allSettings;
-  } catch (error) {
-    console.error('[EMAIL] Failed to read settings from DB:', error);
-    // Return empty object — will fall back to env vars
-    return {};
+  // SET-009: If a fetch is already in-flight, reuse it (prevents thundering herd)
+  if (settingsFetchPromise) {
+    return settingsFetchPromise;
   }
+
+  settingsFetchPromise = (async () => {
+    try {
+      const allSettings = await db.setting.getAll();
+      cachedSettings = allSettings;
+      settingsCacheTime = Date.now();
+      return allSettings;
+    } catch (error) {
+      console.error('[EMAIL] Failed to read settings from DB:', error);
+      return {};
+    } finally {
+      settingsFetchPromise = null;
+    }
+  })();
+
+  return settingsFetchPromise;
 }
 
 // Export for use in other modules (e.g., import API for AI settings)
@@ -51,7 +63,9 @@ export async function sendEmail(payload: EmailPayload): Promise<{ success: boole
   const dbSettings = await getBrevoSettings();
 
   const smtpServer = pickValue(dbSettings, 'BREVO_SMTP_SERVER', 'smtp-relay.brevo.com');
-  const smtpPort = parseInt(pickValue(dbSettings, 'BREVO_SMTP_PORT', '587'));
+  // SET-014: Validate SMTP port range (1-65535, default 587)
+  const rawPort = parseInt(pickValue(dbSettings, 'BREVO_SMTP_PORT', '587'));
+  const smtpPort = (Number.isNaN(rawPort) || rawPort < 1 || rawPort > 65535) ? 587 : rawPort;
   const smtpLogin = pickValue(dbSettings, 'BREVO_SMTP_LOGIN');
   const apiKey = pickValue(dbSettings, 'BREVO_API_KEY');
   const fromEmail = pickValue(dbSettings, 'BREVO_FROM_EMAIL', 'noreply@trishulhub.com');
@@ -99,8 +113,8 @@ export function invalidateSettingsCache() {
 }
 
 export function generateOtpCode(): string {
-  // Generate a 6-digit OTP
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  // SET-003: Cryptographically secure OTP generation
+  return randomInt(100000, 1000000).toString();
 }
 
 export function getOtpExpiry(): Date {
