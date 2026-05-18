@@ -46,14 +46,20 @@ export async function PUT(
       }
     }
 
-    // SHI-002: Validate breakMinutes >= 0
-    if (breakMinutes !== undefined && breakMinutes !== null && Number(breakMinutes) < 0) {
-      return NextResponse.json({ error: 'Break minutes cannot be negative' }, { status: 400 });
+    // SHI-002: Validate breakMinutes is a valid non-negative number (reject NaN/Infinity)
+    if (breakMinutes !== undefined && breakMinutes !== null) {
+      const brk = Number(breakMinutes);
+      if (!Number.isFinite(brk) || brk < 0) {
+        return NextResponse.json({ error: 'Break minutes must be a valid non-negative number' }, { status: 400 });
+      }
     }
 
-    // SHI-007: Validate payRate >= 0
-    if (payRate !== undefined && payRate !== null && Number(payRate) < 0) {
-      return NextResponse.json({ error: 'Pay rate cannot be negative' }, { status: 400 });
+    // SHI-002: Validate payRate is a valid non-negative number (reject NaN/Infinity)
+    if (payRate !== undefined && payRate !== null) {
+      const rate = Number(payRate);
+      if (!Number.isFinite(rate) || rate < 0) {
+        return NextResponse.json({ error: 'Pay rate must be a valid non-negative number' }, { status: 400 });
+      }
     }
 
     // SHI-005: Validate notes and client max length

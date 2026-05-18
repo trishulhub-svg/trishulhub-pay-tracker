@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 
+// SHI-007: Allow up to 60s for PDF generation on Vercel
+export const maxDuration = 60;
+
 // GET /api/shifts/rota-pdf?month=1&year=2025&from=2025-01-01&to=2025-01-31
 // Returns an actual PDF binary file
 export async function GET(request: NextRequest) {
@@ -48,6 +51,10 @@ export async function GET(request: NextRequest) {
     } else if (month && year) {
       const m = parseInt(month);
       const y = parseInt(year);
+      // SHI-005: Validate month/year range
+      if (isNaN(m) || m < 1 || m > 12 || isNaN(y) || y < 2020 || y > 2099) {
+        return NextResponse.json({ error: 'Invalid month (1-12) or year (2020-2099)' }, { status: 400 });
+      }
       startDate = `${y}-${String(m).padStart(2, '0')}-01`;
       const nextMonth = m === 12 ? 1 : m + 1;
       const nextYear = m === 12 ? y + 1 : y;

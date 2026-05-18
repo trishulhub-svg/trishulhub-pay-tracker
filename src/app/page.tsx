@@ -156,6 +156,7 @@ const SHIFT_TYPES = [
   { value: 'OVERTIME', label: 'Overtime', color: 'bg-amber-500 dark:bg-amber-400' },
   { value: 'HOLIDAY', label: 'Holiday', color: 'bg-green-500 dark:bg-green-400' },
   { value: 'SICK', label: 'Sick Leave', color: 'bg-red-500 dark:bg-red-400' },
+  { value: 'ON_CALL', label: 'On Call', color: 'bg-purple-500 dark:bg-purple-400' },
 ];
 
 const STATUS_COLORS: Record<string, string> = {
@@ -294,7 +295,8 @@ function calculateShiftHours(startTime: string, endTime: string, breakMinutes: n
   if (isNaN(startH) || isNaN(startM) || isNaN(endH) || isNaN(endM)) return 0;
   let startMinutes = startH * 60 + startM;
   let endMinutes = endH * 60 + endM;
-  if (endMinutes <= startMinutes) endMinutes += 24 * 60;
+  // SHI-001: Use strict < (matching server behavior) — === means 0-hour shift, not 24-hour
+  if (endMinutes < startMinutes) endMinutes += 24 * 60;
   const workedMinutes = endMinutes - startMinutes - breakMinutes;
   return Math.max(0, Math.round((workedMinutes / 60) * 100) / 100);
 }

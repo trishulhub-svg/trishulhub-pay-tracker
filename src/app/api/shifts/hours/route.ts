@@ -23,6 +23,10 @@ export async function GET(request: NextRequest) {
 
     const m = parseInt(month);
     const y = parseInt(year);
+    // SHI-005: Validate month/year range to prevent NaN date strings
+    if (isNaN(m) || m < 1 || m > 12 || isNaN(y) || y < 2020 || y > 2099) {
+      return NextResponse.json({ error: 'Invalid month (1-12) or year (2020-2099)' }, { status: 400 });
+    }
     const startDate = `${y}-${String(m).padStart(2, '0')}-01`;
     const endDate = m === 12
       ? `${y + 1}-01-01`
