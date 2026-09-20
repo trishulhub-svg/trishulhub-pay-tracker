@@ -62,12 +62,12 @@ function getTursoClient(): Client {
 
 // Export for use in optimized queries (e.g., GROUP BY instead of N+1)
 export function getTursoClientIfAvailable(): Client | null {
-  if (useTurso()) return getTursoClient();
+  if (isTursoEnabled()) return getTursoClient();
   return null;
 }
 
 // Check if we should use Turso (production on Vercel)
-function useTurso(): boolean {
+function isTursoEnabled(): boolean {
   const url = process.env.TURSO_DATABASE_URL
   const token = process.env.TURSO_AUTH_TOKEN
   return !!(url && token && url !== 'undefined' && token !== 'undefined' && url.startsWith('libsql://'))
@@ -284,7 +284,7 @@ export const user = {
     const where = args.where || args
     const select = args.select
 
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       let row: any = null
 
@@ -315,7 +315,7 @@ export const user = {
   },
 
   async findFirst(where: any) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const { conditions, values } = buildWhereConditions(where)
       const sql = conditions.length > 0
@@ -329,7 +329,7 @@ export const user = {
   },
 
   async findMany(args?: { where?: any; orderBy?: any; take?: number; skip?: number; select?: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const { conditions, values } = buildWhereConditions(args?.where)
       let sql = conditions.length > 0
@@ -346,7 +346,7 @@ export const user = {
   },
 
   async count(args?: { where?: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const { conditions, values } = buildWhereConditions(args?.where)
       const sql = conditions.length > 0
@@ -360,7 +360,7 @@ export const user = {
   },
 
   async create(data: { data: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const d = data.data
       const id = d.id || generateId()
@@ -380,7 +380,7 @@ export const user = {
   },
 
   async update(args: { where: { id?: string; email?: string }; data: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const existing = await this.findUnique({ where: args.where })
       if (!existing) throw new Error('User not found')
@@ -401,7 +401,7 @@ export const user = {
   },
 
   async delete(args: { where: { id: string } }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const existing = await this.findUnique({ where: { id: args.where.id } })
       await client.execute({ sql: 'DELETE FROM User WHERE id = ?', args: [args.where.id] })
@@ -417,7 +417,7 @@ export const company = {
   async findUnique(args: { id?: string; userId_name?: { userId: string; name: string }; where?: any }) {
     const where = args.where || args
 
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       if (where.id) {
         const r = await client.execute({ sql: 'SELECT * FROM Company WHERE id = ?', args: [where.id] })
@@ -437,7 +437,7 @@ export const company = {
   },
 
   async findMany(args?: { where?: any; orderBy?: any; include?: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const { conditions, values } = buildWhereConditions(args?.where)
       let sql = conditions.length > 0
@@ -472,7 +472,7 @@ export const company = {
   },
 
   async count(args?: { where?: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const { conditions, values } = buildWhereConditions(args?.where)
       const sql = conditions.length > 0
@@ -486,7 +486,7 @@ export const company = {
   },
 
   async create(data: { data: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const d = data.data
       const id = generateId()
@@ -502,7 +502,7 @@ export const company = {
   },
 
   async update(args: { where: { id: string }; data: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const d = args.data
       const sets: string[] = ['updatedAt = ?']
@@ -521,7 +521,7 @@ export const company = {
   },
 
   async delete(args: { where: { id: string } }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const existing = await this.findUnique({ where: { id: args.where.id } })
       // REC-008: Cascade delete — Turso/SQLite doesn't enforce foreign keys by default
@@ -542,7 +542,7 @@ export const paymentRecord = {
   async findUnique(args: { id?: string; userId_companyId_month_year?: { userId: string; companyId: string; month: number; year: number }; where?: any }) {
     const where = args.where || args
 
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       let row: any = null
 
@@ -571,7 +571,7 @@ export const paymentRecord = {
   },
 
   async findMany(args?: { where?: any; orderBy?: any; include?: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const { conditions, values } = buildWhereConditions(args?.where, 'pr.')
       let sql = conditions.length > 0
@@ -589,7 +589,7 @@ export const paymentRecord = {
   },
 
   async count(args?: { where?: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const { conditions, values } = buildWhereConditions(args?.where)
       const sql = conditions.length > 0
@@ -603,7 +603,7 @@ export const paymentRecord = {
   },
 
   async create(data: { data: any; include?: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const d = data.data
       const id = generateId()
@@ -620,7 +620,7 @@ export const paymentRecord = {
   },
 
   async update(args: { where: { id: string }; data: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const d = args.data
       const sets: string[] = ['updatedAt = ?']
@@ -639,7 +639,7 @@ export const paymentRecord = {
   },
 
   async delete(args: { where: { id: string } }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const existing = await this.findUnique({ where: { id: args.where.id } })
       await client.execute({ sql: 'DELETE FROM PaymentRecord WHERE id = ?', args: [args.where.id] })
@@ -655,7 +655,7 @@ export const shift = {
   async findUnique(args: { id?: string; where?: any }) {
     const where = args.where || args
 
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const r = await client.execute({
         sql: `SELECT s.*, c.name as "company.name", c.id as "company.id" FROM Shift s JOIN Company c ON s.companyId = c.id WHERE s.id = ?`,
@@ -671,7 +671,7 @@ export const shift = {
   },
 
   async findMany(args?: { where?: any; orderBy?: any; include?: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const { conditions, values } = buildWhereConditions(args?.where, 's.')
       let sql = conditions.length > 0
@@ -689,7 +689,7 @@ export const shift = {
   },
 
   async count(args?: { where?: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const { conditions, values } = buildWhereConditions(args?.where)
       const sql = conditions.length > 0
@@ -703,7 +703,7 @@ export const shift = {
   },
 
   async create(data: { data: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const d = data.data
       const id = generateId()
@@ -721,7 +721,7 @@ export const shift = {
   },
 
   async update(args: { where: { id: string }; data: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const d = args.data
       const sets: string[] = ['updatedAt = ?']
@@ -741,7 +741,7 @@ export const shift = {
   },
 
   async delete(args: { where: { id: string } }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const existing = await this.findUnique({ where: { id: args.where.id } })
       await client.execute({ sql: 'DELETE FROM Shift WHERE id = ?', args: [args.where.id] })
@@ -755,7 +755,7 @@ export const shift = {
 // ==================== OTP CODE ====================
 export const otpCode = {
   async findFirst(args: { where: { email?: string; type?: string; verified?: boolean; expiresAt?: any; createdAt?: any; code?: string }; orderBy?: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const conditions: string[] = []
       const values: any[] = []
@@ -831,7 +831,7 @@ export const otpCode = {
   },
 
   async count(args?: { where?: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const { conditions, values } = buildWhereConditions(args?.where)
       const sql = conditions.length > 0
@@ -845,7 +845,7 @@ export const otpCode = {
   },
 
   async create(data: { data: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const d = data.data
       const id = generateId()
@@ -864,7 +864,7 @@ export const otpCode = {
   },
 
   async update(args: { where: { id: string }; data: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const d = args.data
       const sets: string[] = []
@@ -884,7 +884,7 @@ export const otpCode = {
   },
 
   async deleteMany(args: { where: { email: string; type?: string; code?: string } }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const conditions: string[] = ['email = ?']
       const values: any[] = [args.where.email]
@@ -919,7 +919,7 @@ async function ensureSettingTable(client: Client): Promise<void> {
 
 export const setting = {
   async get(key: string): Promise<string | null> {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       try {
         const r = await client.execute({ sql: 'SELECT value FROM Setting WHERE key = ?', args: [key] })
@@ -939,7 +939,7 @@ export const setting = {
   },
 
   async set(key: string, value: string): Promise<void> {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       try {
         await client.execute({
@@ -968,7 +968,7 @@ export const setting = {
   },
 
   async getAll(): Promise<Record<string, string>> {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       try {
         const r = await client.execute({ sql: 'SELECT key, value FROM Setting', args: [] })
@@ -995,7 +995,7 @@ export const setting = {
   },
 
   async delete(key: string): Promise<void> {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       try {
         await client.execute({ sql: 'DELETE FROM Setting WHERE key = ?', args: [key] })
@@ -1016,7 +1016,7 @@ export const setting = {
 // ==================== PAY RATE HISTORY ====================
 export const payRateHistory = {
   async findMany(args?: { where?: any; orderBy?: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const { conditions, values } = buildWhereConditions(args?.where)
       let sql = conditions.length > 0
@@ -1031,7 +1031,7 @@ export const payRateHistory = {
   },
 
   async create(data: { data: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const d = data.data
       const id = generateId()
@@ -1048,7 +1048,7 @@ export const payRateHistory = {
   },
 
   async deleteMany(args: { where: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const { conditions, values } = buildWhereConditions(args.where)
       const sql = conditions.length > 0
@@ -1065,7 +1065,7 @@ export const payRateHistory = {
 // ==================== IMPORT LOG ====================
 export const importLog = {
   async create(data: { data: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const d = data.data
       const id = generateId()
@@ -1087,7 +1087,7 @@ export const importLog = {
   },
 
   async findUnique(args: { where: { id: string } }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const r = await client.execute({ sql: 'SELECT * FROM ImportLog WHERE id = ?', args: [args.where.id] })
       return mapImportLogRow(r.rows[0]) || null
@@ -1097,7 +1097,7 @@ export const importLog = {
   },
 
   async findMany(args?: { where?: any; orderBy?: any; take?: number }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const { conditions, values } = buildWhereConditions(args?.where)
       let sql = conditions.length > 0
@@ -1113,7 +1113,7 @@ export const importLog = {
   },
 
   async update(args: { where: { id: string }; data: any }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const d = args.data
       const sets: string[] = []
@@ -1137,7 +1137,7 @@ export const importLog = {
   },
 
   async delete(args: { where: { id: string } }) {
-    if (useTurso()) {
+    if (isTursoEnabled()) {
       const client = getTursoClient()
       const existing = await this.findUnique({ where: { id: args.where.id } })
       await client.execute({ sql: 'DELETE FROM ImportLog WHERE id = ?', args: [args.where.id] })
@@ -1178,7 +1178,7 @@ const origImportLogFindMany = importLog.findMany.bind(importLog)
 const origImportLogFindUnique = importLog.findUnique.bind(importLog)
 
 importLog.create = async (data: any) => {
-  if (useTurso() && !importLogTableEnsured) {
+  if (isTursoEnabled() && !importLogTableEnsured) {
     try {
       return await origImportLogCreate(data)
     } catch (e: any) {
@@ -1195,7 +1195,7 @@ importLog.create = async (data: any) => {
 }
 
 importLog.findMany = async (args?: any) => {
-  if (useTurso() && !importLogTableEnsured) {
+  if (isTursoEnabled() && !importLogTableEnsured) {
     try {
       return await origImportLogFindMany(args)
     } catch (e: any) {
@@ -1212,7 +1212,7 @@ importLog.findMany = async (args?: any) => {
 }
 
 importLog.findUnique = async (args: any) => {
-  if (useTurso() && !importLogTableEnsured) {
+  if (isTursoEnabled() && !importLogTableEnsured) {
     try {
       return await origImportLogFindUnique(args)
     } catch (e: any) {
